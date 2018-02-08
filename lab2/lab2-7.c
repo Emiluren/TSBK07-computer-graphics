@@ -20,13 +20,14 @@
 
 GLuint myTex = -1;
 GLuint furTex = -1;
+GLuint windowTex = -1;
 
-Model* m = NULL;
+Model* bunnyModel = NULL;
+Model* carModel = NULL;
 
 // Reference to shader program
 GLuint program = -1;
 
-GLuint bunnyVertexArrayObj = -1;
 GLuint planeVertexArrayObj = -1;
 
 const float near = 1.0;
@@ -36,59 +37,35 @@ const float left = -0.5;
 const float top = 0.5;
 const float bottom = -0.5;
 
-void init_bunny()
+Model* init_model(const char* modelname)
 {
-    GLuint vertexArrayObjID;
-	// vertex buffer object, used for uploading the geometry
-    GLuint bunnyVertexBufferObjID;
-    GLuint bunnyNormalBufferObjID;
-    GLuint bunnyTexCoordBufferObjID;
-    GLuint bunnyIndexBufferObjID;
-    
-    m = LoadModel("bunnyplus.obj");
+    Model* model = LoadModelPlus(modelname);
+    glBindVertexArray(model->vao);
 	
-	// Upload geometry to the GPU:
-	
-	// Allocate and activate Vertex Array Object
-    glGenVertexArrays(1, &vertexArrayObjID);
-    glGenBuffers(1, &bunnyVertexBufferObjID);
-    glGenBuffers(1, &bunnyTexCoordBufferObjID);
-    glGenBuffers(1, &bunnyIndexBufferObjID);
-    glGenBuffers(1, &bunnyNormalBufferObjID);
-    
-    glBindVertexArray(vertexArrayObjID);
-
     // VBO for vertex data
-    glBindBuffer(GL_ARRAY_BUFFER, bunnyVertexBufferObjID);
-    glBufferData(GL_ARRAY_BUFFER, m->numVertices*3*sizeof(GLfloat), m->vertexArray, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, model->vb);
     glVertexAttribPointer(glGetAttribLocation(program, "in_Position"), 3, GL_FLOAT, GL_FALSE, 0, 0); 
     glEnableVertexAttribArray(glGetAttribLocation(program, "in_Position"));
     printError("in_Position");
 
     // VBO for normal data
-    glBindBuffer(GL_ARRAY_BUFFER, bunnyNormalBufferObjID);
-    glBufferData(GL_ARRAY_BUFFER, m->numVertices*3*sizeof(GLfloat), m->normalArray, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, model->nb);
     glVertexAttribPointer(glGetAttribLocation(program, "in_Normal"), 3, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(glGetAttribLocation(program, "in_Normal"));
     printError("in_Normal");
 
-    if (m->texCoordArray != NULL)
+    if (model->texCoordArray != NULL)
     {
-        glBindBuffer(GL_ARRAY_BUFFER, bunnyTexCoordBufferObjID);
-        glBufferData(GL_ARRAY_BUFFER, m->numVertices*2*sizeof(GLfloat), m->texCoordArray, GL_STATIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, model->tb);
         glVertexAttribPointer(glGetAttribLocation(program, "in_TexCoord"), 2, GL_FLOAT, GL_FALSE, 0, 0);
         glEnableVertexAttribArray(glGetAttribLocation(program, "in_TexCoord"));
 
         glBindTexture(GL_TEXTURE_2D, furTex);
     }
     printError("in_TexCoord");
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, bunnyIndexBufferObjID);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, m->numIndices*sizeof(GLuint), m->indexArray, GL_STATIC_DRAW);    
-	printError("init arrays");
-
-    bunnyVertexArrayObj = vertexArrayObjID;
+    return model;
 }
+
 
 void init_plane() {
     GLuint vertexArrayObjID;
@@ -179,7 +156,7 @@ void drawPlane(mat4* view, mat4* viewProj) {
 }
 
 void drawBunny(mat4* view, mat4* viewProj) {
-    glBindVertexArray(bunnyVertexArrayObj);	// Select VAO
+    glBindVertexArray(bunnyModel->vao); // Select VAO
     GLfloat t = (GLfloat)glutGet(GLUT_ELAPSED_TIME) / 300.0f;
 
     mat4 trans = T(0, 0, 0);
@@ -193,18 +170,26 @@ void drawBunny(mat4* view, mat4* viewProj) {
 
     glUniform1i(glGetUniformLocation(program, "texUnit"), 0);
     glBindTexture(GL_TEXTURE_2D, furTex);
-    glDrawElements(GL_TRIANGLES, m->numIndices, GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, bunnyModel->numIndices, GL_UNSIGNED_INT, 0);
+}
+
+void drawCar(mat4* view, mat4* viewProj) {
+    glBindVertexArray(carModel->vao);
+
+    mat4 trans = T(2, -1, 0);
+    mat4 mvp = Mult(*viewProj, trans);
+    mat4 mv = Mult(*view, trans);
+
+    glUniformMatrix4fv(glGetUniformLocation(program, "mvp"), 1, GL_TRUE, mvp.m);
+    glUniformMatrix4fv(glGetUniformLocation(program, "mv"), 1, GL_TRUE, mv.m);
+
+    glUniform1i(glGetUniformLocation(program, "texUnit"), 0);
+    glBindTexture(GL_TEXTURE_2D, windowTex);
+    glDrawElements(GL_TRIANGLES, carModel->numIndices, GL_UNSIGNED_INT, 0);
 }
 
 void display(void)
 {
-    /* GLfloat projectionMatrix[] = { */
-    /*     2.0f*near/(right-left), 0.0f, (right+left)/(right-left), 0.0f, */
-    /*     0.0f, 2.0f*near/(top-bottom), (top+bottom)/(top-bottom), 0.0f, */
-    /*     0.0f, 0.0f, -(far + near)/(far - near), -2*far*near/(far - near), */
-    /*     0.0f, 0.0f, -1.0f, 0.0f */
-    /* }; */
-
 	printError("pre display");
 
     glEnable(GL_DEPTH_TEST);
@@ -214,13 +199,18 @@ void display(void)
 	// clear the screen
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    GLfloat t = (GLfloat)glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+    GLfloat cameraX = 5 * cos(t);
+    GLfloat cameraZ = 5 * sin(t);
+
     mat4 frust = frustum(left, right, bottom, top, near, far);
-    mat4 view = lookAt(4, 3, 3,
+    mat4 view = lookAt(cameraX, 3, cameraZ,
                        0, 0, 0,
                        0, 1, 0);
     mat4 viewProj = Mult(frust, view);
     drawPlane(&view, &viewProj);
     drawBunny(&view, &viewProj);
+    drawCar(&view, &viewProj);
 	printError("display");
     glFinish();
 	
@@ -250,13 +240,15 @@ int main(int argc, char *argv[])
 	printError("GL inits");
 
     // Load and compile shader
-	program = loadShaders("lab2-6.vert", "lab2-6.frag");
+	program = loadShaders("lab2-7.vert", "lab2-7.frag");
 	printError("init shader");
 
     LoadTGATextureSimple("maskros512.tga", &myTex);
     LoadTGATextureSimple("fur.tga", &furTex);
+    LoadTGATextureSimple("rutor.tga", &windowTex);
 
-	init_bunny();
+	bunnyModel = init_model("bunnyplus.obj");
+    carModel = init_model("bilskiss.obj");
     init_plane();
 
 	glutMainLoop();
