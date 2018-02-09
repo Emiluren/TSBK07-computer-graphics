@@ -172,6 +172,7 @@ void drawPlane(mat4* view, mat4* viewProj) {
 
     glUniformMatrix4fv(glGetUniformLocation(program, "mvp"), 1, GL_TRUE, mvp.m);
     glUniformMatrix4fv(glGetUniformLocation(program, "mv"), 1, GL_TRUE, mv.m);
+    glUniformMatrix4fv(glGetUniformLocation(program, "v"), 1, GL_TRUE, view->m);
 
     glUniform1i(glGetUniformLocation(program, "texUnit"), 0);
     glBindTexture(GL_TEXTURE_2D, myTex);
@@ -190,6 +191,7 @@ void drawBunny(mat4* view, mat4* viewProj) {
 
     glUniformMatrix4fv(glGetUniformLocation(program, "mvp"), 1, GL_TRUE, mvp.m);
     glUniformMatrix4fv(glGetUniformLocation(program, "mv"), 1, GL_TRUE, mv.m);
+    glUniformMatrix4fv(glGetUniformLocation(program, "v"), 1, GL_TRUE, view->m);
 
     glUniform1i(glGetUniformLocation(program, "texUnit"), 0);
     glBindTexture(GL_TEXTURE_2D, furTex);

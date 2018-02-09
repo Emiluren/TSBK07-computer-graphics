@@ -164,11 +164,12 @@ Model* init_model(const char* modelname)
 //     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 // }
 
-void drawModel(Model* model, mat4* modelView, mat4* modelViewProj) {
+void drawModel(Model* model, mat4* modelView, mat4* modelViewProj, mat4* view) {
     glBindVertexArray(model->vao);
 
     glUniformMatrix4fv(glGetUniformLocation(program, "mvp"), 1, GL_TRUE, modelViewProj->m);
     glUniformMatrix4fv(glGetUniformLocation(program, "mv"), 1, GL_TRUE, modelView->m);
+    glUniformMatrix4fv(glGetUniformLocation(program, "v"), 1, GL_TRUE, view->m);
 
     //glUniform1i(glGetUniformLocation(program, "texUnit"), 0);
     //glBindTexture(GL_TEXTURE_2D, windowTex);
@@ -236,18 +237,18 @@ void display(void)
     mat4 cameraRotation = Mult(Rx(cameraPitch), Ry(cameraYaw));
     mat4 view = Mult(cameraRotation, cameraOffset);
     mat4 viewProj = Mult(frust, view);
-    drawModel(wallsModel, &view, &viewProj);
-    drawModel(roofModel, &view, &viewProj);
-    drawModel(balconyModel, &view, &viewProj);
+    drawModel(wallsModel, &view, &viewProj, &view);
+    drawModel(roofModel, &view, &viewProj, &view);
+    drawModel(balconyModel, &view, &viewProj, &view);
     mat4 bladeOffset = T(4.5, 9.25, 0);
 
     for(int i = 0; i < 4; i++) {
         mat4 bladeRotation = Rx(i * M_PI / 2 + t);
-        mat4 bladeModelMatrix = Mult(bladeOffset, bladeRotation);
+        mat4 bladeWorldMatrix = Mult(bladeOffset, bladeRotation);
 
-        mat4 bladeView = Mult(view, bladeModelMatrix);
-        mat4 bladeProj = Mult(viewProj, bladeModelMatrix);
-        drawModel(bladeModel, &bladeView, &bladeProj);
+        mat4 bladeView = Mult(view, bladeWorldMatrix);
+        mat4 bladeViewProj = Mult(viewProj, bladeWorldMatrix);
+        drawModel(bladeModel, &bladeView, &bladeViewProj, &view);
     }
 	printError("display");
     glFinish();
