@@ -20,7 +20,7 @@
 
 GLuint myTex = -1;
 GLuint furTex = -1;
-GLuint windowTex = -1;
+GLuint carTex = -1;
 
 Model* bunnyModel = NULL;
 Model* carModel = NULL;
@@ -186,7 +186,7 @@ void drawCar(mat4* view, mat4* viewProj) {
     glUniformMatrix4fv(glGetUniformLocation(program, "v"), 1, GL_TRUE, view->m);
 
     glUniform1i(glGetUniformLocation(program, "texUnit"), 0);
-    glBindTexture(GL_TEXTURE_2D, windowTex);
+    glBindTexture(GL_TEXTURE_2D, carTex);
     glDrawElements(GL_TRIANGLES, carModel->numIndices, GL_UNSIGNED_INT, 0);
 }
 
@@ -247,7 +247,7 @@ int main(int argc, char *argv[])
 
     LoadTGATextureSimple("maskros512.tga", &myTex);
     LoadTGATextureSimple("fur.tga", &furTex);
-    LoadTGATextureSimple("rutor.tga", &windowTex);
+    LoadTGATextureSimple("bilskissred.tga", &carTex);
 
 	bunnyModel = init_model("bunnyplus.obj");
     carModel = init_model("bilskiss.obj");
