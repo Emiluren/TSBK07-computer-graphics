@@ -82,16 +82,16 @@ Model* init_model(const char* modelname, GLuint program)
     return model;
 }
 
-void drawModel(Model* model, mat4* modelView, mat4* modelViewProj, mat4* view) {
+void drawModel(Model* model, mat4* world, mat4* worldViewProj) {
     glUseProgram(program);
     glBindVertexArray(model->vao);
 
-    glUniformMatrix4fv(glGetUniformLocation(program, "mvp"), 1, GL_TRUE, modelViewProj->m);
-    glUniformMatrix4fv(glGetUniformLocation(program, "mv"), 1, GL_TRUE, modelView->m);
-    glUniformMatrix4fv(glGetUniformLocation(program, "v"), 1, GL_TRUE, view->m);
+    glUniformMatrix4fv(glGetUniformLocation(program, "WVP"), 1, GL_TRUE, worldViewProj->m);
+    glUniformMatrix4fv(glGetUniformLocation(program, "World"), 1, GL_TRUE, world->m);
 
     glUniform3fv(glGetUniformLocation(program, "lightSourcesDirPosArr"), 4, &lightSourcesDirectionsPositions[0].x);
     glUniform3fv(glGetUniformLocation(program, "lightSourcesColorArr"), 4, &lightSourcesColorsArr[0].x);
+    glUniform3f(glGetUniformLocation(program, "worldEyePos"), cameraX, cameraY, cameraZ);
 
     // TODO: draw several models for all exponents
     glUniform1f(glGetUniformLocation(program, "specularExponent"), specularExponent[0]);
@@ -120,7 +120,7 @@ void cameraCallback(int x, int y) {
 void updateCamera(void) {
     glutWarpPointer(200, 200);
 
-    int dx = 0, dy = 0;
+    float dx = 0, dy = 0;
     if (glutKeyIsDown('a')) {
         dx -= 1;
     }
@@ -133,6 +133,10 @@ void updateCamera(void) {
     if (glutKeyIsDown('s')) {
         dy -= 1;
     }
+
+    float cameraSpeed = 0.2;
+    dx *= cameraSpeed;
+    dy *= cameraSpeed;
 
     cameraX += dx * cos(cameraYaw);
     cameraZ += dx * sin(cameraYaw);
@@ -162,7 +166,8 @@ void display(void)
     mat4 view = Mult(cameraRotation, cameraOffset);
     mat4 viewProj = Mult(frust, view);
 
-    drawModel(carModel, &view, &viewProj, &view);
+    mat4 trans = T(0, 0, 0);
+    drawModel(carModel, &trans, &viewProj);
 
 	printError("display");
     glFinish();
