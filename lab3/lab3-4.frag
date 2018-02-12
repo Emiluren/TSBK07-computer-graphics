@@ -14,19 +14,28 @@ uniform vec3 worldEyePos;
 
 void main(void)
 {
-     const vec3 lightDirection = vec3(0.58, 0.58, 0.58);
-     vec3 normal = normalize(vertex_normal);
+    vec3 total_color = vec3(0);
+    for (int i = 0; i < 4; i++) {
+        vec3 lightDirection = vec3(0, 0, 0);
+        if (isDirectional[i])
+            lightDirection = lightSourcesDirPosArr[i];
+        else
+            lightDirection = normalize(lightSourcesDirPosArr[i] - world_position);
+        vec3 normal = normalize(vertex_normal);
+        vec3 lightColor = lightSourcesColorArr[i];
 
-     float shade = clamp(dot(normal, lightDirection), 0, 1);
+        float shade = clamp(dot(normal, lightDirection), 0, 1);
 
-     // Specular
-     vec3 reflectedLightDirection = reflect(-lightDirection, normal);
-     vec3 eyeDirection = normalize(worldEyePos - world_position);
-     float specularStrength = 0.0;
-     if (dot(lightDirection, normal) > 0.0) {
-         specularStrength = dot(reflectedLightDirection, eyeDirection);
-         specularStrength = max(specularStrength, 0.01);
-         specularStrength = pow(specularStrength, specularExponent);
-     }
-     out_Color = vec4(vec3(shade + specularStrength), 1.0);
+        // Specular
+        vec3 reflectedLightDirection = reflect(-lightDirection, normal);
+        vec3 eyeDirection = normalize(worldEyePos - world_position);
+        float specularStrength = 0.0;
+        if (dot(lightDirection, normal) > 0.0) {
+            specularStrength = dot(reflectedLightDirection, eyeDirection);
+            specularStrength = max(specularStrength, 0.01);
+            specularStrength = pow(specularStrength, specularExponent);
+        }
+        total_color += lightColor * (shade + specularStrength);
+    }
+    out_Color = vec4(total_color, 1.0);
 }

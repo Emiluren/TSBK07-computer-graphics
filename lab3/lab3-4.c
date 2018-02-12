@@ -82,23 +82,16 @@ Model* init_model(const char* modelname, GLuint program)
     return model;
 }
 
-void drawModel(Model* model, mat4* world, mat4* worldViewProj) {
+void setCommonParameters(Model* model) {
     glUseProgram(program);
     glBindVertexArray(model->vao);
-
-    glUniformMatrix4fv(glGetUniformLocation(program, "WVP"), 1, GL_TRUE, worldViewProj->m);
-    glUniformMatrix4fv(glGetUniformLocation(program, "World"), 1, GL_TRUE, world->m);
 
     glUniform3fv(glGetUniformLocation(program, "lightSourcesDirPosArr"), 4, &lightSourcesDirectionsPositions[0].x);
     glUniform3fv(glGetUniformLocation(program, "lightSourcesColorArr"), 4, &lightSourcesColorsArr[0].x);
     glUniform3f(glGetUniformLocation(program, "worldEyePos"), cameraX, cameraY, cameraZ);
 
-    // TODO: draw several models for all exponents
-    glUniform1f(glGetUniformLocation(program, "specularExponent"), specularExponent[0]);
     glUniform1iv(glGetUniformLocation(program, "isDirectional"), 4, isDirectional);
     printError("upload light data");
-
-    glDrawElements(GL_TRIANGLES, model->numIndices, GL_UNSIGNED_INT, 0);
 }
 
 float clamp(float min, float v, float max) {
@@ -166,8 +159,16 @@ void display(void)
     mat4 view = Mult(cameraRotation, cameraOffset);
     mat4 viewProj = Mult(frust, view);
 
-    mat4 trans = T(0, 0, 0);
-    drawModel(carModel, &trans, &viewProj);
+    setCommonParameters(carModel);
+
+    for (int i = 0; i < 6; i++) {
+        mat4 trans = T(-10 + i * 5, 0, 0);
+        mat4 worldViewProj = Mult(viewProj, trans);
+        glUniform1f(glGetUniformLocation(program, "specularExponent"), specularExponent[i]);
+        glUniformMatrix4fv(glGetUniformLocation(program, "WVP"), 1, GL_TRUE, worldViewProj.m);
+        glUniformMatrix4fv(glGetUniformLocation(program, "World"), 1, GL_TRUE, trans.m);
+        glDrawElements(GL_TRIANGLES, carModel->numIndices, GL_UNSIGNED_INT, 0);
+    }
 
 	printError("display");
     glFinish();
