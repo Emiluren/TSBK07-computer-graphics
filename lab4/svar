@@ -2,3 +2,6 @@
 Kind of data: Höjd av marken representerat med ljusare pixlar för högre punkter. 0-255
 
 Number of polygons: 18 [ (4-1)^2 * 2 ]
+
+4-2:
+Need to extend camera code: Nej
