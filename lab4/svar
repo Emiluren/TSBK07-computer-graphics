@@ -5,3 +5,6 @@ Number of polygons: 18 [ (4-1)^2 * 2 ]
 
 4-2:
 Need to extend camera code: Nej
+
+4-3:
+Method for normals: Jag räknade ut en vektor med höjd-skillnaden i x-led och z-led som jag normerade
