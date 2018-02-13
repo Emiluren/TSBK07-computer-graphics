@@ -1,0 +1,29 @@
+3-1:
+Rotate with time-dependent: Ha en matris för rotationen av alla vingar som multipliceras med de individuella vingmatriserna
+
+Wings follow body movements: Ha en matris för kvarnhusets rörelser
+
+3-2:
+kind of control: WASD för att röra sig runt baserat på kamerans riktning. Musen för att rikta kameran.
+
+Other way than "look-at": Jag gjorde det på ett annat sätt. Med en translationsmatris och en rotationsmatris.
+
+3-3:
+Handle camera matrix for skybox: Jag använde bara kamerans rotationsmatris
+
+Represent the objects: Med vao och modell-till-världsmatris. Skulle kanske vara bra med nån sorts scene graph så att man lättare kunde kombinera matriser
+
+Special considerations when rendering skybox: Förutom det som stog i uppgiften så är det väl att inte skugga
+
+Problem with skybox: Den har ingen botten men jag satte clear-färgen till samma som texturen har längst ner
+
+3-4:
+Generate a vector: Ta kamerans position minus yt-positionen
+
+Vector renormalization: yt-normalen
+
+3-5:
+Texture light combination: multiplikation
+
+Texture texture combination: multiplikation
+
