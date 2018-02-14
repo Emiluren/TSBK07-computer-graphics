@@ -20,7 +20,7 @@ GLfloat cameraZ = 10;
 GLfloat cameraYaw = 1.5;
 GLfloat cameraPitch = 0.8;
 
-GLfloat heightAtPoint(int x, int z, int width, int height, GLfloat* vertexArray) {
+GLfloat heightAtVertex(int x, int z, int width, int height, GLfloat* vertexArray) {
     if (x < 0)
         x = 0;
     else if (x >= width)
@@ -63,10 +63,10 @@ Model* GenerateTerrain(TextureData *tex)
     // Calculate vertex normals
     for (x = 0; x < tex->width; x++) {
         for (z = 0; z < tex->height; z++) {
-            GLfloat leftHeight = heightAtPoint(x - 1, z, tex->width, tex->height, vertexArray);
-            GLfloat rightHeight = heightAtPoint(x + 1, z, tex->width, tex->height, vertexArray);
-            GLfloat aboveHeight = heightAtPoint(x, z - 1, tex->width, tex->height, vertexArray);
-            GLfloat belowHeight = heightAtPoint(x, z + 1, tex->width, tex->height, vertexArray);
+            GLfloat leftHeight = heightAtVertex(x - 1, z, tex->width, tex->height, vertexArray);
+            GLfloat rightHeight = heightAtVertex(x + 1, z, tex->width, tex->height, vertexArray);
+            GLfloat aboveHeight = heightAtVertex(x, z - 1, tex->width, tex->height, vertexArray);
+            GLfloat belowHeight = heightAtVertex(x, z + 1, tex->width, tex->height, vertexArray);
 
             vec3 normal = Normalize(SetVector(
                 leftHeight - rightHeight,
@@ -128,7 +128,7 @@ void init()
     projectionMatrix = frustum(-0.1, 0.1, -0.1, 0.1, 0.2, 50.0);
 
     // Load and compile shader
-    program = loadShaders("terrain4-3.vert", "terrain4-3.frag");
+    program = loadShaders("terrain_diffuse.vert", "terrain_diffuse.frag");
     glUseProgram(program);
     printError("init shader");
 
