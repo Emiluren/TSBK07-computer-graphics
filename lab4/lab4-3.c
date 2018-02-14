@@ -20,21 +20,21 @@ GLfloat cameraZ = 10;
 GLfloat cameraYaw = 1.5;
 GLfloat cameraPitch = 0.8;
 
-GLfloat heightAtVertex(int x, int z, int width, int height, GLfloat* vertexArray) {
+GLfloat heightAtVertex(int x, int z, TextureData* tex) {
     if (x < 0)
         x = 0;
-    else if (x >= width)
-        x = width - 1;
+    else if (x >= tex->width)
+        x = tex->width - 1;
 
     if (z < 0)
         z = 0;
-    else if (z >= height)
-        z = height - 1;
+    else if (z >= tex->height)
+        z = tex->height - 1;
 
-    return vertexArray[(x + z * width)*3 + 1];
+    return tex->imageData[(x + z * tex->width) * (tex->bpp/8)] / 100.0;
 }
 
-Model* GenerateTerrain(TextureData *tex)
+Model* GenerateTerrain(TextureData* tex)
 {
     int vertexCount = tex->width * tex->height;
     int triangleCount = (tex->width-1) * (tex->height-1) * 2;
@@ -51,22 +51,18 @@ Model* GenerateTerrain(TextureData *tex)
         for (z = 0; z < tex->height; z++) {
             // Vertex coordinates
             vertexArray[(x + z * tex->width)*3 + 0] = x * gridSize;
-            vertexArray[(x + z * tex->width)*3 + 1] = tex->imageData[(x + z * tex->width) * (tex->bpp/8)] / 100.0;
+            vertexArray[(x + z * tex->width)*3 + 1] = heightAtVertex(x, z, tex);
             vertexArray[(x + z * tex->width)*3 + 2] = z * gridSize;
 
             // Texture coordinates
-            texCoordArray[(x + z * tex->width)*2 + 0] = x; // (float)x / tex->width;
-            texCoordArray[(x + z * tex->width)*2 + 1] = z; // (float)z / tex->height;
-        }
-    }
+            texCoordArray[(x + z * tex->width)*2 + 0] = x;
+            texCoordArray[(x + z * tex->width)*2 + 1] = z;
 
-    // Calculate vertex normals
-    for (x = 0; x < tex->width; x++) {
-        for (z = 0; z < tex->height; z++) {
-            GLfloat leftHeight = heightAtVertex(x - 1, z, tex->width, tex->height, vertexArray);
-            GLfloat rightHeight = heightAtVertex(x + 1, z, tex->width, tex->height, vertexArray);
-            GLfloat aboveHeight = heightAtVertex(x, z - 1, tex->width, tex->height, vertexArray);
-            GLfloat belowHeight = heightAtVertex(x, z + 1, tex->width, tex->height, vertexArray);
+            // Calculate vertex normals
+            GLfloat leftHeight = heightAtVertex(x - 1, z, tex);
+            GLfloat rightHeight = heightAtVertex(x + 1, z, tex);
+            GLfloat aboveHeight = heightAtVertex(x, z - 1, tex);
+            GLfloat belowHeight = heightAtVertex(x, z + 1, tex);
 
             vec3 normal = Normalize(SetVector(
                 leftHeight - rightHeight,
@@ -77,8 +73,10 @@ Model* GenerateTerrain(TextureData *tex)
             normalArray[(x + z * tex->width)*3 + 0] = normal.x;
             normalArray[(x + z * tex->width)*3 + 1] = normal.y;
             normalArray[(x + z * tex->width)*3 + 2] = normal.z;
+
         }
     }
+
     for (x = 0; x < tex->width-1; x++) {
         for (z = 0; z < tex->height-1; z++) {
             // Triangle 1
