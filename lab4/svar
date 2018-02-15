@@ -8,3 +8,8 @@ Need to extend camera code: Nej
 
 4-3:
 Method for normals: Jag räknade ut en vektor med höjd-skillnaden i x-led och z-led som jag normerade
+
+4-4:
+What surface to use: Jag delade x- och z-koordinaterna med storleken på rutnätet för att få index för arrayen med terrängdata.
+
+Surface height: Jag gjorde en interpolation av höjden av de fyra vertices som är runt xz-punkten baserat på resten då koordinaterna delades.
