@@ -47,5 +47,6 @@ void main(void)
     out_Color =
         texture(texture1, vertex_uvs) *
         texture(texture2, vertex_uvs) *
-        vec4(total_light_color, 1.0);
+        vec4(total_diffuse_light_color, 1.0) +
+        vec4(total_specular_light_color, 1.0);
 }

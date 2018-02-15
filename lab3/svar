@@ -23,7 +23,6 @@ Generate a vector: Ta kamerans position minus yt-positionen
 Vector renormalization: yt-normalen
 
 3-5:
-Texture light combination: multiplikation
+Texture light combination: multiplikation av diffuse-ljuset och sen plus specular_ljuset
 
 Texture texture combination: multiplikation
-
