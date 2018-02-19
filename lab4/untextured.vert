@@ -12,7 +12,7 @@ void main()
 {
 	gl_Position = totalMatrix * vec4(inPosition, 1.0);
 
-    const vec3 light = vec3(0.58, 0.58, 0.58);
+    const vec3 light = vec3(-0.58, 0.58, -0.58);
     vec3 worldNormal = normalize((worldMatrix * vec4(inNormal, 0.0)).xyz);
     float cosTheta = clamp(dot(worldNormal, light), 0, 1);
     color = cosTheta * inColor;
