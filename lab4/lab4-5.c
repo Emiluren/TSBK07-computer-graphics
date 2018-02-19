@@ -294,7 +294,7 @@ void init()
     projectionMatrix = frustum(-0.1, 0.1, -0.1, 0.1, 0.2, 50.0);
 
     // Load and compile shaders
-    program = loadShaders("terrain_diffuse.vert", "terrain_diffuse.frag");
+    program = loadShaders("terrain_multi.vert", "terrain_multi.frag");
     printError("init terrain shader");
     untexturedProgram = loadShaders("untextured.vert", "untextured.frag");
     printError("init untextured shader");
@@ -369,7 +369,7 @@ void updateCamera() {
 GLint findUniform(GLuint program, const char* name) {
     GLint location = glGetUniformLocation(program, name);
     if (location == -1) {
-        printf("Could not find uniform %s in program %u", name, program);
+        printf("Could not find uniform %s in program %u\n", name, program);
     }
     return location;
 }
@@ -423,9 +423,12 @@ void display()
     glUniformMatrix4fv(findUniform(program, "worldMatrix"), 1, GL_TRUE, IdentityMatrix().m);
     glUniformMatrix4fv(findUniform(program, "totalMatrix"), 1, GL_TRUE, total.m);
 
-    glUniform1i(findUniform(program, "tex"), 0);
+    glUniform1i(findUniform(program, "grassTex"), 0);
+    glUniform1i(findUniform(program, "soilTex"), 1);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, grassTexture);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, soilTexture);
     DrawModel(terrainModel, program, "inPosition", "inNormal", "inTexCoord");
 
     glUseProgram(untexturedProgram);
@@ -434,7 +437,6 @@ void display()
     GLfloat octagonX = 5;
     GLfloat octagonZ = sin(t / 2.0) * 5 + 5;
     GLfloat octagonY = heightAtPoint(octagonX / gridSize, octagonZ / gridSize);
-    vec3 normalUnderOctagon = normalAtPoint(octagonX / gridSize, octagonZ / gridSize, terrainTexture.width, terrainModel->normalArray);
     mat4 octagonWorld = Mult(T(octagonX, octagonY, octagonZ), S(0.2, 0.2, 0.2));
 
     glBindVertexArray(octagon->vao);

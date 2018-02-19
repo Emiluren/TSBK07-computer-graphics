@@ -15,6 +15,6 @@ What surface to use: Jag delade x- och z-koordinaterna med storleken på rutnät
 Surface height: Jag gjorde en interpolation av höjden av de fyra vertices som är runt xz-punkten baserat på resten då koordinaterna delades.
 
 4-5:
-Multitexturing:
+Multitexturing: punkter med y < 0.1 får en jord-textur istället för gräs
 
 Slope: Jag interpolerade normalerna för de närliggande vertices och sen använde jag arctangens för att få ut två rotationer.
