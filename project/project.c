@@ -83,7 +83,8 @@ struct VertexBoneData {
 };
 
 // vertex attributes
-struct VertexBoneData g_boneWeights[kMaxRow][kMaxCorners][3];
+int g_boneIDs[kMaxRow][kMaxCorners][4];
+float g_boneWeights[kMaxRow][kMaxCorners][4];
 vec2 g_boneWeightVis[kMaxRow][kMaxCorners]; // Copy data to here to visualize your weights
 
 mat4 boneRestMatrices[kMaxBones];
@@ -113,50 +114,78 @@ void initBoneWeights(void) {
 				float boneDist = fabs(bonePos - g_vertsOrg[row][corner].x);
 				float boneWeight = (BONE_LENGTH - boneDist) / (BONE_LENGTH);
 				if (boneWeight < 0)
-				boneWeight = 0;
+					boneWeight = 0;
 				boneWeights[bone] = boneWeight;
 				totalBoneWeight += boneWeight;
 
 				if (maxBoneWeight < boneWeight)
-				maxBoneWeight = boneWeight;
+					maxBoneWeight = boneWeight;
 			}
 
-			for (int i = 0; i < 3; i++) {
-				g_boneWeights[row][corner][i].index = 0;
-				g_boneWeights[row][corner][i].weight = 0;
+			// Set all ids and weights to 0 so unused data doesn't destroy anything
+			for (int bone_id = 0; bone_id < 4; bone_id++) {
+				g_boneIDs[row][corner][bone_id] = 0;
+				g_boneWeights[row][corner][bone_id] = 0;
 			}
 
 			int bone_i = 0;
 			g_boneWeightVis[row][corner].s = 0;
 			g_boneWeightVis[row][corner].t = 0;
+			//printf("for vert %d %d: ", row, corner);
 			for (bone = 0; bone < kMaxBones; bone++) {
+				// Use the first 4 bones that have any weight for this vertex
 				float weight = boneWeights[bone] / totalBoneWeight;
-				if (weight > 0 && bone_i < 3) {
-					g_boneWeights[row][corner][bone_i].index = bone;
-					g_boneWeights[row][corner][bone_i].weight = weight;
+				if (weight > 0 && bone_i < 4) {
+					g_boneIDs[row][corner][bone_i] = bone;
+					g_boneWeights[row][corner][bone_i] = weight;
+					//printf("b %d, w %f ", bone, weight);
 					bone_i++;
 				}
-
-				//				printf("%d %d %d\n", bone, bone & 1, (bone+1) & 1);
 				if (bone & 1) g_boneWeightVis[row][corner].s += weight; // Copy data to here to visualize your weights or anything else
 				if ((bone+1) & 1) g_boneWeightVis[row][corner].t += weight; // Copy data to here to visualize your weights
-				/* printf("%f ", bone, g_boneWeights[row][corner][bone]); */
 			}
-			/* printf("\n"); */
-
-			// Visar vertexraderna
-			//			g_boneWeightVis[row][corner].s = row & 1; // Copy data to here to visualize your weights or anything else
-			//			g_boneWeightVis[row][corner].t = (row+1) & 1; // Copy data to here to visualize your weights
+			//printf("\n");
 		}
 	}
 
-	corner = 0;
-	for (row = 0; row < kMaxRow; row++) {
-		for (bone = 0; bone < kMaxBones; bone++) {
-			//				printf("%d %d %f\n", row, bone, g_boneWeights[row][corner][bone]);
-		}
+	// Build Model from cylinder data
+	cylinderModel = LoadDataToModel(
+		(GLfloat*) g_vertsRes,
+		(GLfloat*) g_normalsRes,
+		(GLfloat*) g_boneWeightVis, // texCoords
+		NULL, // (GLfloat*) g_boneWeights, // colors
+		(GLuint*) g_poly, // indices
+		kMaxRow*kMaxCorners,
+		kMaxg_poly * 3);
+
+	glBindVertexArray(cylinderModel->vao);
+
+	// Buffer bone IDs
+	GLuint boneIdBuffer;
+	glGenBuffers(1, &boneIdBuffer);
+	glBindBuffer(GL_ARRAY_BUFFER, boneIdBuffer);
+	glBufferData(GL_ARRAY_BUFFER, kMaxRow*kMaxCorners*sizeof(GLint)*4, g_boneIDs, GL_STATIC_DRAW);
+	GLint loc = glGetAttribLocation(g_shader, "in_BoneIDs");
+	if (loc >= 0) {
+		glVertexAttribIPointer(loc, 4, GL_INT, 0, 0);
+		glEnableVertexAttribArray(loc);
 	}
-	//		for (corner = 0; corner < kMaxCorners; corner++)
+	else
+		ReportRerror("Bone ids", "in_BoneIDs");
+
+	// Buffer bone weights
+	GLuint boneWeightBuffer;
+	glGenBuffers(1, &boneWeightBuffer);
+	glBindBuffer(GL_ARRAY_BUFFER, boneWeightBuffer);
+	glBufferData(GL_ARRAY_BUFFER, kMaxRow*kMaxCorners*sizeof(GLfloat)*4, g_boneWeights, GL_STATIC_DRAW);
+
+	loc = glGetAttribLocation(g_shader, "in_Weights");
+	if (loc >= 0) {
+		glVertexAttribPointer(loc, 4, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(loc);
+	}
+	else
+		ReportRerror("Bone weights", "in_Weights");
 }
 
 
@@ -170,46 +199,44 @@ void BuildCylinder()
 	long	row, corner, cornerIndex;
 
 	// sätter värden till alla vertexar i meshen
-	for (row = 0; row < kMaxRow; row++)
-	for (corner = 0; corner < kMaxCorners; corner++)
-	{
-		g_vertsOrg[row][corner].x = (float) row * CYLINDER_SEGMENT_LENGTH;
-		g_vertsOrg[row][corner].y = cos(corner * 2*Pi / kMaxCorners);
-		g_vertsOrg[row][corner].z = sin(corner * 2*Pi / kMaxCorners);
+	for (row = 0; row < kMaxRow; row++) {
+		for (corner = 0; corner < kMaxCorners; corner++) {
+			g_vertsOrg[row][corner].x = (float) row * CYLINDER_SEGMENT_LENGTH;
+			g_vertsOrg[row][corner].y = cos(corner * 2*Pi / kMaxCorners);
+			g_vertsOrg[row][corner].z = sin(corner * 2*Pi / kMaxCorners);
 
-		g_normalsOrg[row][corner].x = 0;
-		g_normalsOrg[row][corner].y = cos(corner * 2*Pi / kMaxCorners);
-		g_normalsOrg[row][corner].z = sin(corner * 2*Pi / kMaxCorners);
-	};
+			g_normalsOrg[row][corner].x = 0;
+			g_normalsOrg[row][corner].y = cos(corner * 2*Pi / kMaxCorners);
+			g_normalsOrg[row][corner].z = sin(corner * 2*Pi / kMaxCorners);
+		}
+	}
 
 	// g_poly definerar mellan vilka vertexar som
 	// trianglarna ska ritas
-	for (row = 0; row < kMaxRow-1; row++)
-	for (corner = 0; corner < kMaxCorners; corner++)
-	{
-		// Quads built from two triangles
+	for (row = 0; row < kMaxRow-1; row++) {
+		for (corner = 0; corner < kMaxCorners; corner++) {
+			// Quads built from two triangles
 
-		if (corner < kMaxCorners-1)
-		{
-			cornerIndex = row * kMaxCorners + corner;
-			g_poly[cornerIndex * 2].v1 = cornerIndex;
-			g_poly[cornerIndex * 2].v2 = cornerIndex + 1;
-			g_poly[cornerIndex * 2].v3 = cornerIndex + kMaxCorners + 1;
+			if (corner < kMaxCorners-1) {
+				cornerIndex = row * kMaxCorners + corner;
+				g_poly[cornerIndex * 2].v1 = cornerIndex;
+				g_poly[cornerIndex * 2].v2 = cornerIndex + 1;
+				g_poly[cornerIndex * 2].v3 = cornerIndex + kMaxCorners + 1;
 
-			g_poly[cornerIndex * 2 + 1].v1 = cornerIndex;
-			g_poly[cornerIndex * 2 + 1].v2 = cornerIndex + kMaxCorners + 1;
-			g_poly[cornerIndex * 2 + 1].v3 = cornerIndex + kMaxCorners;
-		}
-		else
-		{ // Specialfall: sista i varvet, gå runt hörnet korrekt
-			cornerIndex = row * kMaxCorners + corner;
-			g_poly[cornerIndex * 2].v1 = cornerIndex;
-			g_poly[cornerIndex * 2].v2 = cornerIndex + 1 - kMaxCorners;
-			g_poly[cornerIndex * 2].v3 = cornerIndex + kMaxCorners + 1 - kMaxCorners;
+				g_poly[cornerIndex * 2 + 1].v1 = cornerIndex;
+				g_poly[cornerIndex * 2 + 1].v2 = cornerIndex + kMaxCorners + 1;
+				g_poly[cornerIndex * 2 + 1].v3 = cornerIndex + kMaxCorners;
+			} else {
+				// Specialfall: sista i varvet, gå runt hörnet korrekt
+				cornerIndex = row * kMaxCorners + corner;
+				g_poly[cornerIndex * 2].v1 = cornerIndex;
+				g_poly[cornerIndex * 2].v2 = cornerIndex + 1 - kMaxCorners;
+				g_poly[cornerIndex * 2].v3 = cornerIndex + kMaxCorners + 1 - kMaxCorners;
 
-			g_poly[cornerIndex * 2 + 1].v1 = cornerIndex;
-			g_poly[cornerIndex * 2 + 1].v2 = cornerIndex + kMaxCorners + 1 - kMaxCorners;
-			g_poly[cornerIndex * 2 + 1].v3 = cornerIndex + kMaxCorners;
+				g_poly[cornerIndex * 2 + 1].v1 = cornerIndex;
+				g_poly[cornerIndex * 2 + 1].v2 = cornerIndex + kMaxCorners + 1 - kMaxCorners;
+				g_poly[cornerIndex * 2 + 1].v3 = cornerIndex + kMaxCorners;
+			}
 		}
 	}
 
@@ -225,8 +252,7 @@ void BuildCylinder()
 //			pos-vektor och en rot-vektor
 //			rot vektorn skulle lika gärna
 //			kunna vara av 3x3 men VectorUtils2 har bara 4x4
-typedef struct Bone
-{
+typedef struct Bone {
 	vec3 pos;
 	mat4 rot;
 } Bone;
@@ -258,8 +284,7 @@ void setupBones(void)
 {
 	int bone;
 
-	for (bone = 0; bone < kMaxBones; bone++)
-	{
+	for (bone = 0; bone < kMaxBones; bone++) {
 		g_bones[bone].pos = SetVector((float) bone * BONE_LENGTH, 0.0f, 0.0f);
 		g_bones[bone].rot = IdentityMatrix();
 		
@@ -271,8 +296,7 @@ void setupBones(void)
 //		D E F O R M  C Y L I N D E R
 //
 // Desc:	deformera cylinder-meshen enligt skelettet
-void DeformCylinder()
-{
+void DeformCylinder() {
 	int row, corner;
 
 	mat4 boneLocalAnimMatrices[kMaxBones];
@@ -283,7 +307,7 @@ void DeformCylinder()
 
 	mat4 boneAnimMatrices[kMaxBones];
 	boneAnimMatrices[0] = boneLocalAnimMatrices[0];
-	for(int b = 1; b < kMaxBones; ++b){
+	for(int b = 1; b < kMaxBones; ++b) {
 		boneAnimMatrices[b] = Mult(
 			boneAnimMatrices[b-1],
 			boneLocalAnimMatrices[b]
@@ -295,32 +319,12 @@ void DeformCylinder()
 		completeMatrix[b] = Mult(boneAnimMatrices[b], boneRestMatrices[b]);
 	}
 
-	// för samtliga vertexar
-	for (row = 0; row < kMaxRow; row++) {
-		for (corner = 0; corner < kMaxCorners; corner++) {
-			g_vertsRes[row][corner] = (vec3){0, 0, 0};
-			for(int b = 0; b < 3; b++) {
-				int index = g_boneWeights[row][corner][b].index;
-				float weight = g_boneWeights[row][corner][b].weight;
-				printf("(%d %f) ", index, weight);
-
-				vec3 transformedVert = MultVec3(completeMatrix[index], g_vertsOrg[row][corner]);
-				vec3 weightedVert = ScalarMult(transformedVert, weight);
-				g_vertsRes[row][corner] = VectorAdd(g_vertsRes[row][corner], weightedVert);
-			}
-			printf("\n");
-			// ---------=========  UPG 4 ===========---------
-			// TODO: skinna meshen mot alla benen.
-			//
-			// data som du kan använda:
-			// g_bonesRes[].rot
-			// g_bones[].pos
-			// g_boneWeights
-			// g_vertsOrg
-			// g_vertsRes
-
-		}
+	GLint loc = glGetUniformLocation(g_shader, "bones");
+	if (loc >= 0) {
+		glUniformMatrix4fv(loc, kMaxBones, GL_TRUE, completeMatrix);
 	}
+	else
+		ReportRerror("Bone weights", "in_Weights");
 }
 
 
@@ -381,11 +385,6 @@ void DrawCylinder()
 
 	// setBoneLocation();
 	// setBoneRotation();
-
-	// update cylinder vertices:
-	glBindVertexArray(cylinderModel->vao);
-	glBindBuffer(GL_ARRAY_BUFFER, cylinderModel->vb);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vec3)*kMaxRow*kMaxCorners, g_vertsRes, GL_DYNAMIC_DRAW);
 
 	DrawModel(cylinderModel, g_shader, "in_Position", "in_Normal", "in_TexCoord");
 }
@@ -460,16 +459,6 @@ int main(int argc, char **argv)
 	BuildCylinder();
 	setupBones();
 	initBoneWeights();
-
-	// Build Model from cylinder data
-	cylinderModel = LoadDataToModel(
-		(GLfloat*) g_vertsRes,
-		(GLfloat*) g_normalsRes,
-		(GLfloat*) g_boneWeightVis, // texCoords
-		NULL, // (GLfloat*) g_boneWeights, // colors
-		(GLuint*) g_poly, // indices
-		kMaxRow*kMaxCorners,
-		kMaxg_poly * 3);
 
 	glutMainLoop();
 	exit(0);
