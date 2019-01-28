@@ -77,8 +77,13 @@ vec3 g_normalsOrg[kMaxRow][kMaxCorners];
 vec3 g_vertsRes[kMaxRow][kMaxCorners];
 vec3 g_normalsRes[kMaxRow][kMaxCorners];
 
+struct VertexBoneData {
+	int index;
+	float weight;
+};
+
 // vertex attributes
-float g_boneWeights[kMaxRow][kMaxCorners][kMaxBones];
+struct VertexBoneData g_boneWeights[kMaxRow][kMaxCorners][3];
 vec2 g_boneWeightVis[kMaxRow][kMaxCorners]; // Copy data to here to visualize your weights
 
 mat4 boneRestMatrices[kMaxBones];
@@ -116,14 +121,25 @@ void initBoneWeights(void) {
 				maxBoneWeight = boneWeight;
 			}
 
+			for (int i = 0; i < 3; i++) {
+				g_boneWeights[row][corner][i].index = 0;
+				g_boneWeights[row][corner][i].weight = 0;
+			}
+
+			int bone_i = 0;
 			g_boneWeightVis[row][corner].s = 0;
 			g_boneWeightVis[row][corner].t = 0;
 			for (bone = 0; bone < kMaxBones; bone++) {
-				g_boneWeights[row][corner][bone] = boneWeights[bone] / totalBoneWeight;
+				float weight = boneWeights[bone] / totalBoneWeight;
+				if (weight > 0 && bone_i < 3) {
+					g_boneWeights[row][corner][bone_i].index = bone;
+					g_boneWeights[row][corner][bone_i].weight = weight;
+					bone_i++;
+				}
 
 				//				printf("%d %d %d\n", bone, bone & 1, (bone+1) & 1);
-				if (bone & 1) g_boneWeightVis[row][corner].s += g_boneWeights[row][corner][bone]; // Copy data to here to visualize your weights or anything else
-				if ((bone+1) & 1) g_boneWeightVis[row][corner].t += g_boneWeights[row][corner][bone]; // Copy data to here to visualize your weights
+				if (bone & 1) g_boneWeightVis[row][corner].s += weight; // Copy data to here to visualize your weights or anything else
+				if ((bone+1) & 1) g_boneWeightVis[row][corner].t += weight; // Copy data to here to visualize your weights
 				/* printf("%f ", bone, g_boneWeights[row][corner][bone]); */
 			}
 			/* printf("\n"); */
@@ -283,11 +299,16 @@ void DeformCylinder()
 	for (row = 0; row < kMaxRow; row++) {
 		for (corner = 0; corner < kMaxCorners; corner++) {
 			g_vertsRes[row][corner] = (vec3){0, 0, 0};
-			for(int b = 0; b < kMaxBones; b++) {
-				vec3 transformedVert = MultVec3(completeMatrix[b], g_vertsOrg[row][corner]);
-				vec3 weightedVert = ScalarMult(transformedVert, g_boneWeights[row][corner][b]);
+			for(int b = 0; b < 3; b++) {
+				int index = g_boneWeights[row][corner][b].index;
+				float weight = g_boneWeights[row][corner][b].weight;
+				printf("(%d %f) ", index, weight);
+
+				vec3 transformedVert = MultVec3(completeMatrix[index], g_vertsOrg[row][corner]);
+				vec3 weightedVert = ScalarMult(transformedVert, weight);
 				g_vertsRes[row][corner] = VectorAdd(g_vertsRes[row][corner], weightedVert);
 			}
+			printf("\n");
 			// ---------=========  UPG 4 ===========---------
 			// TODO: skinna meshen mot alla benen.
 			//
