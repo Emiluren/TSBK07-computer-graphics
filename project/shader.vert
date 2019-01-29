@@ -35,7 +35,7 @@ void main(void)
 	vec4 color = vec4(in_TexCoord.x, in_TexCoord.y, 0.0, 1.0);
 
 	// Lägg på en enkel ljussättning på vertexarna 	
-	float intensity = dot(in_Normal, lightDir);
+	float intensity = dot(mat3(boneTransform) * in_Normal, lightDir);
 	color.xyz *= intensity;
 
 	g_color = color;

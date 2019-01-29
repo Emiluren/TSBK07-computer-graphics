@@ -171,7 +171,7 @@ void initBoneWeights(void) {
 		glEnableVertexAttribArray(loc);
 	}
 	else
-		ReportRerror("Bone ids", "in_BoneIDs");
+		fprintf(stderr, "%s warning: '%s' not found in shader!\n", "Bone ids", "in_BoneIDs");
 
 	// Buffer bone weights
 	GLuint boneWeightBuffer;
@@ -185,7 +185,7 @@ void initBoneWeights(void) {
 		glEnableVertexAttribArray(loc);
 	}
 	else
-		ReportRerror("Bone weights", "in_Weights");
+		fprintf(stderr, "%s warning: '%s' not found in shader!\n", "Bone weights", "in_Weights");
 }
 
 
@@ -297,8 +297,6 @@ void setupBones(void)
 //
 // Desc:	deformera cylinder-meshen enligt skelettet
 void DeformCylinder() {
-	int row, corner;
-
 	mat4 boneLocalAnimMatrices[kMaxBones];
 	for (int b = 0; b < kMaxBones; ++b) {
 		mat4 translation = boneTranslation(b);
@@ -321,10 +319,10 @@ void DeformCylinder() {
 
 	GLint loc = glGetUniformLocation(g_shader, "bones");
 	if (loc >= 0) {
-		glUniformMatrix4fv(loc, kMaxBones, GL_TRUE, completeMatrix);
+		glUniformMatrix4fv(loc, kMaxBones, GL_TRUE, (const GLfloat*)completeMatrix);
 	}
 	else
-		ReportRerror("Bone weights", "in_Weights");
+		fprintf(stderr, "%s warning: '%s' not found in shader!\n", "Bone weights", "in_Weights");
 }
 
 
