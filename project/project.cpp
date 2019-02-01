@@ -33,6 +33,8 @@
 #include "GL_utilities.h"
 #include "VectorUtils3.h"
 #include "loadobj.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #include <string.h>
 
 #include <assimp/Importer.hpp>
@@ -97,15 +99,6 @@ Model *cylinderModel; // Collects all the above for drawing with glDrawElements
 
 mat4 modelViewMatrix, projectionMatrix;
 
-enum VB_TYPES {
-    INDEX_BUFFER,
-    POS_VB,
-    NORMAL_VB,
-    TEXCOORD_VB,
-    BONE_VB,
-    NUM_VBs
-};
-
 struct VertexBoneData {
 	VertexBoneData() : index{0}, weight{0} {}
 	GLuint index;
@@ -126,103 +119,67 @@ struct Mesh {
     GLuint VAO;
     GLuint buffer;
 	GLuint index_buffer;
-	struct MeshEntry {
-		uint num_indices;
-		uint base_vertex;
-		uint base_index;
-		uint material_index;
-	};
-	vector<MeshEntry> entries;
-};
-
-struct Mesh load_mesh(const aiScene* scene) {
-	Mesh mesh;
-
-	unsigned int num_vertices = 0;
-	unsigned int num_indices = 0;
-
-	mesh.entries.reserve(scene->mNumMeshes);
+	uint num_indices;
+	uint material_index;
 
 	struct BoneInfo {
         mat4 bone_offset;
         mat4 final_transformation;
     };
+	vector<BoneInfo> bones;
+};
+
+struct Mesh load_mesh(const aiMesh* assimp_mesh) {
+	Mesh mesh;
 
 	vector<VertexData> vertices;
 	vector<GLuint> indices;
-	vector<BoneInfo> bones;
-	for (uint i = 0; i < scene->mNumMeshes; i++) {
-		aiMesh* submesh = scene->mMeshes[i];
 
-		// Store buffer offsets for all vertex data
-		Mesh::MeshEntry entry;
-		entry.material_index = submesh->mMaterialIndex;
-		entry.num_indices = submesh->mNumFaces * 3;
+	// Store buffer offsets for all vertex data
+	mesh.material_index = assimp_mesh->mMaterialIndex;
+	mesh.num_indices = assimp_mesh->mNumFaces * 3;
 
-		entry.base_index = num_indices;
-		entry.base_vertex = num_vertices;
+	vertices.reserve(assimp_mesh->mNumVertices);
+	// Initialize vertex data
+	for (uint i = 0; i < assimp_mesh->mNumVertices; i++) {
+		aiVector3D pos = assimp_mesh->mVertices[i];
+		aiVector3D norm = assimp_mesh->mNormals[i];
+		aiVector3D tex_coord = assimp_mesh->mTextureCoords[0][i];
 
-		mesh.entries.push_back(entry);
+		VertexData vert;
+		vert.position = SetVector(pos.x, pos.y, pos.z);
+		vert.normal = SetVector(norm.x, norm.y, norm.z);
+		vert.tex_coord = vec2 { tex_coord.x, tex_coord.y };
 
-		num_vertices += submesh->mNumVertices;
-		num_indices += entry.num_indices;
+		vertices.push_back(vert);
+	}
 
-		//vertices.reserve(submesh->mNumVertices);
-		// Initialize vertex data
-		for (uint j = 0; j < submesh->mNumVertices; j++) {
-			aiVector3D pos = submesh->mVertices[j];
-			aiVector3D norm = submesh->mNormals[j];
-			aiVector3D tex_coord = submesh->mTextureCoords[0][j];
+	indices.reserve(assimp_mesh->mNumFaces * 3);
+	for (uint i = 0; i < assimp_mesh->mNumFaces; i++) {
+		aiFace face = assimp_mesh->mFaces[i];
+		assert(face.mNumIndices == 3);
+		indices.push_back(face.mIndices[0]);
+		indices.push_back(face.mIndices[1]);
+		indices.push_back(face.mIndices[2]);
+	}
 
-			VertexData vert;
-			vert.position = SetVector(pos.x, pos.y, pos.z);
-			vert.normal = SetVector(norm.x, norm.y, norm.z);
-			vert.tex_coord = vec2 { tex_coord.x, tex_coord.y };
+	// Initialize bones
+	for (uint i = 0; i < assimp_mesh->mNumBones; i++) {
+		struct aiBone* bone = assimp_mesh->mBones[i];
 
-			vertices.push_back(vert);
-		}
+		Mesh::BoneInfo bi;
+		// The data should be stored in the same way
+		bi.bone_offset = *reinterpret_cast<mat4*>(&bone->mOffsetMatrix);
 
-		//indices.reserve(submesh->mNumFaces * 3);
-		for (uint j = 0; j < submesh->mNumFaces; j++) {
-			aiFace face = submesh->mFaces[j];
-			assert(face.mNumIndices == 3);
-			indices.push_back(face.mIndices[0]);
-			indices.push_back(face.mIndices[1]);
-			indices.push_back(face.mIndices[2]);
-		}
+		for (uint k = 0; k < bone->mNumWeights; k++) {
+			uint vert_id = bone->mWeights[k].mVertexId;
+			float weight = bone->mWeights[k].mWeight;
 
-		map<string, uint> bone_mapping;
-		uint num_bones = 0;
-		// Initialize bones
-		for (uint j = 0; j < submesh->mNumBones; j++) {
-			struct aiBone* bone = submesh->mBones[j];
-
-			uint bone_index = 0;
-			string bone_name(submesh->mName.data);
-
-			if (bone_mapping.find(bone_name) == bone_mapping.end()) {
-				// Bone was not found, assign a new index
-				bone_index = num_bones;
-				num_bones++;
-
-				BoneInfo bi;
-				// The data should be stored in the same way
-				bi.bone_offset = *reinterpret_cast<mat4*>(&bone->mOffsetMatrix);
-				bone_mapping[bone_name] = bone_index;
-			} else {
-				bone_index = bone_mapping[bone_name];
-			}
-
-			for (uint k = 0; k < bone->mNumWeights; k++) {
-				uint vert_id = entry.base_vertex + bone->mWeights[k].mVertexId;
-				float weight = bone->mWeights[k].mWeight;
-
-				// Find an available bone
-				for (uint l = 0; l < BONES_PER_VERTEX; l++) {
-					if (vertices[vert_id].bone_weights[l] == 0.0f) {
-						vertices[vert_id].bone_weights[l] = weight;
-						vertices[vert_id].bone_indices[l] = bone_index;
-					}
+			// Find an available bone
+			for (uint j = 0; j < BONES_PER_VERTEX; j++) {
+				if (vertices[vert_id].bone_weights[j] == 0.0f) {
+					vertices[vert_id].bone_weights[j] = weight;
+					vertices[vert_id].bone_indices[j] = i;
 				}
 			}
 		}
@@ -234,10 +191,11 @@ struct Mesh load_mesh(const aiScene* scene) {
 	glGenBuffers(1, &mesh.buffer);
 
 	glBindBuffer(GL_ARRAY_BUFFER, mesh.buffer);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), &vertices[0], GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(VertexData) * vertices.size(), &vertices[0], GL_STATIC_DRAW);
 
+	glGenBuffers(1, &mesh.index_buffer);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.index_buffer);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices[0]) * indices.size(), &indices[0], GL_STATIC_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * indices.size(), &indices[0], GL_STATIC_DRAW);
 
 	GLuint pos_loc = glGetAttribLocation(g_mesh_shader, "in_Position");
 	GLuint norm_loc = glGetAttribLocation(g_mesh_shader, "in_Normal");
@@ -255,7 +213,9 @@ struct Mesh load_mesh(const aiScene* scene) {
 	glVertexAttribPointer(norm_loc, 3, GL_FLOAT, GL_FALSE, sizeof(VertexData), (void*)offsetof(VertexData, normal));
 	glVertexAttribPointer(texcoord_loc, 2, GL_FLOAT, GL_FALSE, sizeof(VertexData), (void*)offsetof(VertexData, tex_coord));
 	glVertexAttribIPointer(boneid_loc, BONES_PER_VERTEX, GL_INT, sizeof(VertexData), (void*)offsetof(VertexData, bone_indices));
-	glVertexAttribPointer(pos_loc, BONES_PER_VERTEX, GL_FLOAT, GL_FALSE, sizeof(VertexData), (void*)offsetof(VertexData, bone_weights));
+	glVertexAttribPointer(weight_loc, BONES_PER_VERTEX, GL_FLOAT, GL_FALSE, sizeof(VertexData), (void*)offsetof(VertexData, bone_weights));
+
+	glBindVertexArray(0);
 
 	return mesh;
 }
@@ -554,13 +514,14 @@ void DrawCylinder()
 	DrawModel(cylinderModel, g_shader, "in_Position", "in_Normal", "in_TexCoord");
 }
 
-Mesh g_mesh;
+vector<Mesh> g_meshes;
+vector<GLuint> textures;
 
 void DisplayWindow()
 {
 	mat4 m;
 
-	glClearColor(0.4, 0.4, 0.2, 1);
+	glClearColor(0.2, 0.2, 0.2, 1);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	// Cylinder
@@ -573,21 +534,18 @@ void DisplayWindow()
 
 	// Guard
 	glUseProgram(g_mesh_shader);
-	glBindVertexArray(g_mesh.VAO);
 	glUniformMatrix4fv(glGetUniformLocation(g_mesh_shader, "matrix"), 1, GL_TRUE, m.m);
 
-	for (uint i = 0; i < 1; i++) {
-		// TODO: handle material
+	for (Mesh& mesh : g_meshes) {
+		glBindVertexArray(mesh.VAO);
 
-		//printf("before draw: num_indices %u, base_index %u, base_vertex %u\n", g_mesh.entries[i].num_indices, g_mesh.entries[i].base_index, g_mesh.entries[i].base_vertex);
-		glDrawElementsBaseVertex(
-			GL_TRIANGLES,
-			g_mesh.entries[i].num_indices,
-			GL_UNSIGNED_INT,
-			(void*)(sizeof(uint) * g_mesh.entries[i].base_index),
-			g_mesh.entries[i].base_vertex
-		);
-		//printf("after draw\n");
+		assert(mesh.material_index < textures.size());
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, textures[mesh.material_index]);
+		glUniform1i(glGetUniformLocation(g_mesh_shader, "sampler"), 0);
+
+		glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, nullptr);
 	}
 
 	glutSwapBuffers();
@@ -646,14 +604,52 @@ int main(int argc, char **argv)
 	glewInit();
 #endif
 
-
 	Assimp::Importer importer;
 	const aiScene* scene = importer.ReadFile(
 		"boblampclean.md5mesh",
 		aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs
 	);
-	g_mesh = load_mesh(scene);
+	for (uint i = 0; i < scene->mNumMeshes; i++) {
+		g_meshes.push_back(load_mesh(scene->mMeshes[i]));
+	}
 	printf("loaded mesh\n");
+
+	textures.reserve(scene->mNumMaterials);
+	for (uint i = 0; i < scene->mNumMaterials; i++) {
+		aiMaterial* mat = scene->mMaterials[i];
+
+		if (mat->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
+			aiString path;
+
+			if (mat->GetTexture(aiTextureType_DIFFUSE, 0, &path,
+								NULL, NULL, NULL, NULL, NULL) == AI_SUCCESS) {
+				int w, h, n;
+				unsigned char* data = stbi_load(path.data, &w, &h, &n, 4);
+				if (!data) {
+					fprintf(stderr, "Error: could not load %s!\n", path.data);
+					printf("Loaded %s\n", path.data);
+
+					// Add something to the vector for index purposes
+					textures.push_back(0);
+				} else {
+					GLuint texID;
+					glGenTextures(1, &texID);
+					glBindTexture(GL_TEXTURE_2D, texID);
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+					GLenum type = GL_RGBA;
+					glTexImage2D(GL_TEXTURE_2D, 0, type, w, h, 0, type, GL_UNSIGNED_BYTE, data);
+					glGenerateMipmap(GL_TEXTURE_2D);
+					glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+
+					stbi_image_free(data);
+					textures.push_back(texID);
+				}
+			}
+		}
+	}
+
 	BuildCylinder();
 	setupBones();
 	initBoneWeights();

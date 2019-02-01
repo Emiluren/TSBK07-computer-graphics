@@ -13,6 +13,7 @@ uniform mat4 matrix;
 uniform mat4 bones[kMaxBones];
 
 out vec4 g_color;
+
 const vec3 lightDir = normalize(vec3(0.3, 0.5, 1.0));
 
 // Uppgift 3: Soft-skinning på GPU
