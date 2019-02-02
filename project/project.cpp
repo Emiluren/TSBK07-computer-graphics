@@ -80,6 +80,8 @@ typedef struct Triangle
 
 #define BONE_LENGTH 4.0
 
+const uint MAX_BONES = 100;
+
 Triangle g_poly[kMaxg_poly];
 
 // vertices
@@ -150,6 +152,10 @@ struct Mesh load_mesh(const aiMesh* assimp_mesh) {
 		vert.position = SetVector(pos.x, pos.y, pos.z);
 		vert.normal = SetVector(norm.x, norm.y, norm.z);
 		vert.tex_coord = vec2 { tex_coord.x, tex_coord.y };
+		for (uint i = 0; i < BONES_PER_VERTEX; i++) {
+			vert.bone_indices[i] = 0;
+			vert.bone_weights[i] = 0;
+		}
 
 		vertices.push_back(vert);
 	}
@@ -170,6 +176,7 @@ struct Mesh load_mesh(const aiMesh* assimp_mesh) {
 		Mesh::BoneInfo bi;
 		// The data should be stored in the same way
 		bi.bone_offset = *reinterpret_cast<mat4*>(&bone->mOffsetMatrix);
+		mesh.bones.push_back(bi);
 
 		for (uint k = 0; k < bone->mNumWeights; k++) {
 			uint vert_id = bone->mWeights[k].mVertexId;
@@ -475,42 +482,13 @@ void animateBones(void)
 	g_bonesRes[bone].rot = Rz(angle * angleScales[bone]);
 }
 
-
-///////////////////////////////////////////////
-//		S E T  B O N E  R O T A T I O N
-// Desc:	sätter bone rotationen i vertex shadern
-// (Ej obligatorisk.)
-void setBoneRotation(void)
-{
-}
-
-
-///////////////////////////////////////////////
-//		 S E T  B O N E  L O C A T I O N
-// Desc:	sätter bone positionen i vertex shadern
-// (Ej obligatorisk.)
-void setBoneLocation(void)
-{
-}
-
-
 ///////////////////////////////////////////////
 //		 D R A W  C Y L I N D E R
-// Desc:	sätter bone positionen i vertex shadern
+// Desc:	sätter bone-positionen i vertex shadern
 void DrawCylinder()
 {
 	animateBones();
-
-	// ---------=========  UPG 2 (extra) ===========---------
-	// ersätt DeformCylinder med en vertex shader som gör vad DeformCylinder gör.
-	// begynelsen till shaderkoden ligger i filen "ShaderCode.vert" ...
-	//
-
 	DeformCylinder();
-
-	// setBoneLocation();
-	// setBoneRotation();
-
 	DrawModel(cylinderModel, g_shader, "in_Position", "in_Normal", "in_TexCoord");
 }
 
@@ -543,7 +521,15 @@ void DisplayWindow()
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, textures[mesh.material_index]);
+
 		glUniform1i(glGetUniformLocation(g_mesh_shader, "sampler"), 0);
+		GLuint bone_loc = glGetUniformLocation(g_mesh_shader, "bones");
+
+		mat4 bone_transforms[MAX_BONES];
+		for (uint i = 0; i < MAX_BONES; i++) {
+			bone_transforms[i] = IdentityMatrix();
+		}
+		glUniformMatrix4fv(bone_loc, MAX_BONES, GL_TRUE, (const GLfloat*)bone_transforms);
 
 		glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, nullptr);
 	}
@@ -557,12 +543,6 @@ void OnTimer(int value)
 	glutTimerFunc(20, &OnTimer, value);
 }
 
-void keyboardFunc( unsigned char key, int x, int y)
-{
-	if(key == 27)	//Esc
-	exit(1);
-}
-
 void reshape(GLsizei w, GLsizei h)
 {
 	vec3 cam = {0,0,40};
@@ -571,9 +551,11 @@ void reshape(GLsizei w, GLsizei h)
 	glViewport(0, 0, w, h);
 	GLfloat ratio = (GLfloat) w / (GLfloat) h;
 	projectionMatrix = perspective(90, ratio, 0.1, 1000);
-	modelViewMatrix = lookAt(cam.x, cam.y, cam.z,
+	modelViewMatrix = lookAt(
+		cam.x, cam.y, cam.z,
 		look.x, look.y, look.z,
-		0,1,0);
+		0, 1, 0
+	);
 }
 
 /////////////////////////////////////////
@@ -590,7 +572,6 @@ int main(int argc, char **argv)
 
 	glutDisplayFunc(DisplayWindow);
 	glutTimerFunc(20, &OnTimer, 0);
-	glutKeyboardFunc(keyboardFunc);
 	glutReshapeFunc(reshape);
 
 	g_shader = loadShaders("shader.vert" , "shader.frag");
