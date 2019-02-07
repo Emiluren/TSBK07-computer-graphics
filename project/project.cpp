@@ -124,12 +124,27 @@ struct Mesh {
 	uint num_indices;
 	uint material_index;
 
-	struct BoneInfo {
-        mat4 bone_offset;
-        mat4 final_transformation;
-    };
-	vector<BoneInfo> bones;
+	vector<mat4> bone_offsets;
+	map<string, uint> bone_index_mapping;
 };
+
+mat4 convert_assimp_matrix4(const aiMatrix4x4 ai_mat) {
+	mat4 mat;
+	mat.m[0] = ai_mat.a1; mat.m[1] = ai_mat.a2; mat.m[2] = ai_mat.a3; mat.m[3] = ai_mat.a4;
+	mat.m[4] = ai_mat.b1; mat.m[5] = ai_mat.b2; mat.m[6] = ai_mat.b3; mat.m[7] = ai_mat.b4;
+	mat.m[8] = ai_mat.c1; mat.m[9] = ai_mat.c2; mat.m[10] = ai_mat.c3; mat.m[11] = ai_mat.c4;
+	mat.m[12] = ai_mat.d1; mat.m[13] = ai_mat.d2; mat.m[14] = ai_mat.d3; mat.m[15] = ai_mat.d4;
+	return mat;
+}
+
+mat4 convert_assimp_matrix3(const aiMatrix3x3 ai_mat) {
+	mat4 mat;
+	mat.m[0] = ai_mat.a1; mat.m[1] = ai_mat.a2; mat.m[2] = ai_mat.a3; mat.m[3] = 0;
+	mat.m[4] = ai_mat.b1; mat.m[5] = ai_mat.b2; mat.m[6] = ai_mat.b3; mat.m[7] = 0;
+	mat.m[8] = ai_mat.c1; mat.m[9] = ai_mat.c2; mat.m[10] = ai_mat.c3; mat.m[11] = 0;
+	mat.m[12] = 0;        mat.m[13] = 0;        mat.m[14] = 0;        mat.m[15] = 1;
+	return mat;
+}
 
 struct Mesh load_mesh(const aiMesh* assimp_mesh) {
 	Mesh mesh;
@@ -173,10 +188,13 @@ struct Mesh load_mesh(const aiMesh* assimp_mesh) {
 	for (uint i = 0; i < assimp_mesh->mNumBones; i++) {
 		struct aiBone* bone = assimp_mesh->mBones[i];
 
-		Mesh::BoneInfo bi;
 		// The data should be stored in the same way
-		bi.bone_offset = *reinterpret_cast<mat4*>(&bone->mOffsetMatrix);
-		mesh.bones.push_back(bi);
+		mat4 bone_offset = convert_assimp_matrix4(bone->mOffsetMatrix);
+		mesh.bone_offsets.push_back(bone_offset);
+
+		//printf("bone %s\n", bone->mName.data);
+
+		mesh.bone_index_mapping[bone->mName.data] = i;
 
 		for (uint k = 0; k < bone->mNumWeights; k++) {
 			uint vert_id = bone->mWeights[k].mVertexId;
@@ -492,8 +510,177 @@ void DrawCylinder()
 	DrawModel(cylinderModel, g_shader, "in_Position", "in_Normal", "in_TexCoord");
 }
 
+struct AnimationData {
+	float animation_time;
+	aiAnimation* animation;
+	Mesh* mesh;
+};
+
+uint find_position(float animation_time, const aiNodeAnim* node_anim) {
+    for (uint i = 0 ; i < node_anim->mNumPositionKeys - 1 ; i++) {
+        if (animation_time < (float)node_anim->mPositionKeys[i + 1].mTime) {
+            return i;
+        }
+    }
+
+    assert(false);
+    return 0;
+}
+
+uint find_rotation(float animation_time, const aiNodeAnim* node_anim) {
+    assert(node_anim->mNumRotationKeys > 0);
+
+    for (uint i = 0 ; i < node_anim->mNumRotationKeys - 1 ; i++) {
+        if (animation_time < (float)node_anim->mRotationKeys[i + 1].mTime) {
+            return i;
+        }
+    }
+
+    assert(false);
+    return 0;
+}
+
+uint find_scaling(float animation_time, const aiNodeAnim* node_anim) {
+    assert(node_anim->mNumScalingKeys > 0);
+
+    for (uint i = 0 ; i < node_anim->mNumScalingKeys - 1 ; i++) {
+        if (animation_time < (float)node_anim->mScalingKeys[i + 1].mTime) {
+            return i;
+        }
+    }
+
+    assert(false);
+    return 0;
+}
+
+vec3 calc_interpolated_position(float animation_time, const aiNodeAnim* node_anim) {
+    if (node_anim->mNumPositionKeys == 1) {
+        aiVector3D pos = node_anim->mPositionKeys[0].mValue;
+		return SetVector(pos.x, pos.y, pos.z);
+    }
+
+    uint position_index = find_position(animation_time, node_anim);
+    uint next_position_index = position_index + 1;
+
+    assert(next_position_index < node_anim->mNumPositionKeys);
+
+	float delta_time =
+		node_anim->mPositionKeys[next_position_index].mTime -
+		node_anim->mPositionKeys[position_index].mTime;
+    float factor =
+		(animation_time - node_anim->mPositionKeys[position_index].mTime) / delta_time;
+
+	assert(factor >= 0.0f && factor <= 1.0f);
+
+	aiVector3D start = node_anim->mPositionKeys[position_index].mValue;
+    aiVector3D end = node_anim->mPositionKeys[next_position_index].mValue;
+    aiVector3D out = start + factor * (end - start);
+	return SetVector(out.x, out.y, out.z);
+}
+
+aiQuaternion calc_interpolated_rotation(float animation_time, const aiNodeAnim* node_anim) {
+    if (node_anim->mNumRotationKeys == 1) {
+        return node_anim->mRotationKeys[0].mValue;
+    }
+
+    uint index = find_rotation(animation_time, node_anim);
+    uint next_index = index + 1;
+
+    assert(next_index < node_anim->mNumRotationKeys);
+
+	float delta_time =
+		node_anim->mRotationKeys[next_index].mTime -
+		node_anim->mRotationKeys[index].mTime;
+    float factor =
+		(animation_time - node_anim->mRotationKeys[index].mTime) / delta_time;
+
+	assert(factor >= 0.0f && factor <= 1.0f);
+
+	aiQuaternion start = node_anim->mRotationKeys[index].mValue;
+    aiQuaternion end = node_anim->mRotationKeys[next_index].mValue;
+
+	aiQuaternion out;
+    aiQuaternion::Interpolate(out, start, end, factor);
+    return out;
+}
+
+vec3 calc_interpolated_scaling(float animation_time, const aiNodeAnim* node_anim) {
+    if (node_anim->mNumScalingKeys == 1) {
+        aiVector3D scale = node_anim->mScalingKeys[0].mValue;
+        return SetVector(scale.x, scale.y, scale.z);
+    }
+
+    uint index = find_scaling(animation_time, node_anim);
+    uint next_index = index + 1;
+
+    assert(next_index < node_anim->mNumScalingKeys);
+
+	float delta_time =
+		node_anim->mScalingKeys[next_index].mTime -
+		node_anim->mScalingKeys[index].mTime;
+    float factor =
+		(animation_time - node_anim->mScalingKeys[index].mTime) / delta_time;
+
+	assert(factor >= 0.0f && factor <= 1.0f);
+
+	aiVector3D start = node_anim->mScalingKeys[index].mValue;
+    aiVector3D end = node_anim->mScalingKeys[next_index].mValue;
+	aiVector3D out = start + factor * (end - start);
+	return SetVector(out.x, out.y, out.z);
+}
+
+const aiNodeAnim* find_node_anim(const aiAnimation* animation, const string node_name) {
+	for (uint i = 0; i < animation->mNumChannels; i++) {
+		const aiNodeAnim* node_anim = animation->mChannels[i];
+		if (node_name == node_anim->mNodeName.data) {
+			return node_anim;
+		}
+	}
+	return nullptr;
+}
+
+void read_node_heirarchy(
+	const AnimationData anim_data,
+	const aiNode* node,
+	const mat4 parent_transform,
+	mat4 bone_transforms[MAX_BONES]
+) {
+	string node_name(node->mName.data);
+	const aiNodeAnim* node_anim = find_node_anim(anim_data.animation, node_name);
+
+	mat4 node_transformation = convert_assimp_matrix4(node->mTransformation);
+	if (node_anim) {
+		vec3 scale = calc_interpolated_scaling(anim_data.animation_time, node_anim);
+		mat4 scaleM = S(scale.x, scale.y, scale.z);
+
+		aiQuaternion rot = calc_interpolated_rotation(anim_data.animation_time, node_anim);
+		aiMatrix3x3 aiRotM = rot.GetMatrix();
+		mat4 rotM = convert_assimp_matrix3(aiRotM);
+
+		vec3 pos = calc_interpolated_position(anim_data.animation_time, node_anim);
+		mat4 posM = T(pos.x, pos.y, pos.z);
+
+		node_transformation = posM * rotM * scaleM;
+	}
+
+	mat4 global_transform = parent_transform * node_transformation;
+
+	auto& bone_mapping = anim_data.mesh->bone_index_mapping;
+	if (bone_mapping.find(node_name) != bone_mapping.end()) {
+		uint bone_index = bone_mapping[node_name];
+		bone_transforms[bone_index] = global_transform * anim_data.mesh->bone_offsets[bone_index];
+	}
+
+	for (uint i = 0; i < node->mNumChildren; i++) {
+		read_node_heirarchy(anim_data, node->mChildren[i], global_transform, bone_transforms);
+	}
+}
+
 vector<Mesh> g_meshes;
 vector<GLuint> textures;
+
+aiAnimation* g_animation;
+aiNode* g_root_node;
 
 void DisplayWindow()
 {
@@ -508,7 +695,7 @@ void DisplayWindow()
 	m = Mult(projectionMatrix, modelViewMatrix);
 	glUniformMatrix4fv(glGetUniformLocation(g_shader, "matrix"), 1, GL_TRUE, m.m);
 
-	DrawCylinder();
+	//DrawCylinder();
 
 	// Guard
 	glUseProgram(g_mesh_shader);
@@ -525,10 +712,19 @@ void DisplayWindow()
 		glUniform1i(glGetUniformLocation(g_mesh_shader, "sampler"), 0);
 		GLuint bone_loc = glGetUniformLocation(g_mesh_shader, "bones");
 
+		float time_in_seconds = glutGet(GLUT_ELAPSED_TIME) / 1000.0;
+
 		mat4 bone_transforms[MAX_BONES];
-		for (uint i = 0; i < MAX_BONES; i++) {
-			bone_transforms[i] = IdentityMatrix();
-		}
+		float time_in_ticks = time_in_seconds * g_animation->mTicksPerSecond;
+		float animation_time = fmod(time_in_ticks, g_animation->mDuration);
+
+		AnimationData anim_data { animation_time, g_animation, &mesh };
+		read_node_heirarchy(anim_data, g_root_node, IdentityMatrix(), bone_transforms);
+
+		// for (uint i = 0; i < MAX_BONES; i++) {
+		// 	bone_transforms[i] = IdentityMatrix();
+		// }
+
 		glUniformMatrix4fv(bone_loc, MAX_BONES, GL_TRUE, (const GLfloat*)bone_transforms);
 
 		glDrawElements(GL_TRIANGLES, mesh.num_indices, GL_UNSIGNED_INT, nullptr);
@@ -545,8 +741,8 @@ void OnTimer(int value)
 
 void reshape(GLsizei w, GLsizei h)
 {
-	vec3 cam = {0,0,40};
-	vec3 look = {10,0,0};
+	vec3 cam = { 0, 10, 40 };
+	vec3 look = { 0, 15, 0 };
 
 	glViewport(0, 0, w, h);
 	GLfloat ratio = (GLfloat) w / (GLfloat) h;
@@ -593,7 +789,10 @@ int main(int argc, char **argv)
 	for (uint i = 0; i < scene->mNumMeshes; i++) {
 		g_meshes.push_back(load_mesh(scene->mMeshes[i]));
 	}
-	printf("loaded mesh\n");
+	printf("Loaded mesh.\n");
+
+	g_animation = scene->mAnimations[0];
+	g_root_node = scene->mRootNode;
 
 	textures.reserve(scene->mNumMaterials);
 	for (uint i = 0; i < scene->mNumMaterials; i++) {
@@ -630,6 +829,7 @@ int main(int argc, char **argv)
 			}
 		}
 	}
+	printf("Loaded textures.\n");
 
 	BuildCylinder();
 	setupBones();

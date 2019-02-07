@@ -24,7 +24,7 @@ void main(void) {
 		bones[in_BoneIDs[3]] * in_Weights[3];
 
 	// gl_Position = matrix * boneTransform * vec4(in_Position, 1.0);
-	vec3 p = vec3(in_Position.x, in_Position.z, -in_Position.y);
+	vec3 p = vec3(in_Position.x, in_Position.y, in_Position.z);
 	gl_Position = matrix * boneTransform * vec4(p * 0.4, 1.0);
 
 	float intensity = dot(in_Normal, lightDir);
