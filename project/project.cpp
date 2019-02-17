@@ -146,6 +146,183 @@ mat4 convert_assimp_matrix3(const aiMatrix3x3 ai_mat) {
 	return mat;
 }
 
+void parse_md5_mesh(const char* filename) {
+	FILE* file = fopen(filename, "r");
+	if (!file) {
+		fprintf(stderr, "parse_md5_mesh: Could not open %s\n", filename);
+		return;
+	}
+
+	// TODO: This function does not check for parse errors
+
+	int version;
+	fscanf(file, "MD5Version %d ", &version);
+	assert(version == 10);
+
+	fscanf(file, "commandline %*s ");
+
+	int num_joints, num_meshes;
+	fscanf(file, "numJoints %d ", &num_joints);
+	fscanf(file, "numMeshes %d ", &num_meshes);
+
+	// printf("joints: %d, meshes %d\n", num_joints, num_meshes);
+
+	fscanf(file, "joints { ");
+	for (int i = 0; i < num_joints; i++) {
+		char joint_name[32]; // This probably risks a buffer overflow
+		int parent_index;
+		vec3 position;
+		vec3 orientation;
+
+		fscanf(
+			file,
+			"%s %d ( %f %f %f ) ( %f %f %f ) %*[^\n] ",
+			joint_name,
+			&parent_index,
+			&position.x, &position.y, &position.z,
+			&orientation.x, &orientation.y, &orientation.z
+		);
+
+		// printf(
+		// 	"parsed %s: %d (%f %f %f) (%f %f %f)\n",
+		// 	joint_name,
+		// 	parent_index,
+		// 	position.x, position.y, position.z,
+		// 	orientation.x, orientation.y, orientation.z
+		// );
+	}
+	fscanf(file, "} ");
+
+	for (int i = 0; i < num_meshes; i++) {
+		fscanf(file, "mesh { ");
+		char texture_filename[128];
+		fscanf(file, "shader %s ", texture_filename);
+
+		int num_verts;
+		fscanf(file, "numverts %d ", &num_verts);
+		for (int j = 0; j < num_verts; j++) {
+			int start_weight, weight_count;
+			vec2 tex_coords;
+			fscanf(
+				file,
+				"vert %*d ( %f %f ) %d %d ",
+				&tex_coords.s, &tex_coords.t,
+				&start_weight, &weight_count
+			);
+
+			// printf(
+			// 	"parsed vertex %d (%f %f) w %d %d\n",
+			// 	vert_index,
+			// 	tex_coords.s, tex_coords.t,
+			// 	start_weight, weight_count
+			// );
+		}
+
+		int num_triangles;
+		fscanf(file, "numtris %d ", &num_triangles);
+		for (int j = 0; j < num_triangles; j++) {
+			int vert_indices[3];
+			fscanf(
+				file,
+				"tri %*d %d %d %d ",
+				&vert_indices[0], &vert_indices[1], &vert_indices[2]
+			);
+
+			// printf(
+			// 	"parsed triangle %d (%d %d %d)\n", triangle_index,
+			// 	vert_indices[0], vert_indices[1], vert_indices[2]
+			// );
+		}
+
+		int num_weights;
+		fscanf(file, "numweights %d ", &num_weights);
+		for (int j = 0; j < num_weights; j++) {
+			int joint_index;
+			float weight_bias;
+			vec3 weight_position;
+
+			fscanf(
+				file,
+				"weight %*d %d %f ( %f %f %f ) ",
+				&joint_index, &weight_bias,
+				&weight_position.x, &weight_position.y, &weight_position.z
+			);
+
+			// printf(
+			// 	"parsed weight %d %d %f (%f %f %f)\n",
+			// 	weight_index, joint_index, weight_bias,
+			// 	weight_position.x, weight_position.y, weight_position.z
+			// );
+		}
+
+		fscanf(file, "} ");
+	}
+
+	fclose(file);
+}
+
+void parse_md5_anim(const char* filename) {
+	FILE* file = fopen(filename, "r");
+	if (!file) {
+		fprintf(stderr, "parse_md5_mesh: Could not open %s\n", filename);
+		return;
+	}
+
+	// TODO: This function does not check for parse errors
+
+	int version;
+	fscanf(file, "MD5Version %d ", &version);
+	assert(version == 10);
+
+	fscanf(file, "commandline %*s ");
+
+	int num_frames, num_joints, frame_rate, num_animated_components;
+	fscanf(file, "numFrames %d ", &num_frames);
+	fscanf(file, "numJoints %d ", &num_joints);
+	fscanf(file, "frameRate %d ", &frame_rate);
+	fscanf(file, "numAnimatedCompontents %d ", &num_animated_components);
+
+	fscanf(file, "hierarchy { ");
+	for (int i = 0; i < num_joints; i++) {
+		int parent_index, flags, start_index;
+		fscanf(file, "%*s %d %d %d %*[^\n] ", &parent_index, &flags, &start_index);
+	}
+	fscanf(file, "} ");
+
+	fscanf(file, "bounds { ");
+	for (int i = 0; i < num_frames; i++) {
+		vec3 bound_min, bound_max;
+		fscanf(
+			file,
+			"( %f %f %f ) ( %f %f %f ) ",
+			&bound_min.x, &bound_min.y, &bound_min.z,
+			&bound_max.x, &bound_max.y, &bound_max.z
+		);
+	}
+	fscanf(file, "} ");
+
+	fscanf(file, "baseframe { ");
+	for (int i = 0; i < num_joints; i++) {
+		vec3 position, orientation;
+		fscanf(
+			file,
+			"( %f %f %f ) ( %f %f %f ) ",
+			&position.x, &position.y, &position.z,
+			&orientation.x, &orientation.y, &orientation.z
+		);
+	}
+	fscanf(file, "} ");
+
+	for (int i = 0; i < num_frames; i++) {
+		fscanf(file, "frame { ");
+		for (int j = 0; j < num_animated_components; j++) {
+			float data;
+			fscanf(file, "%f ", &data);
+		}
+		fscanf(file, "} ");
+	}
+}
+
 struct Mesh load_mesh(const aiMesh* assimp_mesh) {
 	Mesh mesh;
 
@@ -780,6 +957,8 @@ int main(int argc, char **argv)
 #ifdef WIN32
 	glewInit();
 #endif
+
+	parse_md5_mesh("boblampclean.md5mesh");
 
 	Assimp::Importer importer;
 	const aiScene* scene = importer.ReadFile(
