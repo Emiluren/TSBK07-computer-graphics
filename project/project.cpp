@@ -101,6 +101,10 @@ Model *cylinderModel; // Collects all the above for drawing with glDrawElements
 
 mat4 modelViewMatrix, projectionMatrix;
 
+struct Quaternion {
+	float x, y, z, w;
+};
+
 struct VertexBoneData {
 	VertexBoneData() : index{0}, weight{0} {}
 	GLuint index;
@@ -146,13 +150,43 @@ mat4 convert_assimp_matrix3(const aiMatrix3x3 ai_mat) {
 	return mat;
 }
 
+inline Quaternion expand_quat(vec3 q) {
+	float t = 1.0f - (q.x * q.x) - (q.y * q.y) - (q.z * q.z);
+	float w = t < 0 ? 0 : sqrtf(t);
+
+	return Quaternion { q.x, q.y, q.z, w };
+}
+
+mat4 quat_to_mat4(Quaternion q) {
+	mat4 rot {
+		1 - 2*q.y*q.y - 2*q.z*q.z, 2*q.x*q.y - 2*q.z*q.w,   2*q.x*q.z + 2*q.y*q.w,
+		2*q.x*q.y + 2*q.z*q.w,     1 - q.x*q.x - 2*q.z*q.z, 2*q.y*q.z - 2*q.x*q.w,
+		2*q.x*q.z - 2*q.y*q.w,     2*q.y*q.z + 2*q.x*q.w,   1 - 2*q.x*q.x - 2*q.y*q.y
+	};
+	return rot;
+}
+
+vec3 rotate_vec_by_quat(vec3 vec, Quaternion quat) {
+	vec3 q_xyz = vec3 { quat.x, quat.y, quat.z };
+	float w = quat.w;
+
+	return
+		2.0f * DotProduct(q_xyz, vec) * q_xyz +
+		(w*w - DotProduct(q_xyz, q_xyz)) * vec +
+		2.0f * w * CrossProduct(q_xyz, vec);
+}
+
 struct Md5Joint {
 	int parent_index;
 	vec3 position;
-	vec3 orientation;
+	Quaternion orientation;
 };
 
 struct Md5Vertex {
+	Md5Vertex() :
+		pos{0, 0, 0}, normal{0, 0, 0}, tex_coords{0, 0},
+		start_weight{0}, weight_count{0} {}
+
 	vec3 pos;
 	vec3 normal;
 	vec2 tex_coords;
@@ -166,11 +200,80 @@ struct Md5Weight {
 	vec3 position;
 };
 
-void parse_md5_mesh(const char* filename) {
+struct Md5Mesh {
+	string texture_filename;
+	vector<Md5Vertex> vertices;
+	vector<array<int, 3>> triangles;
+	vector<Md5Weight> weights;
+};
+
+struct Md5Model {
+	vector<Md5Mesh> meshes;
+	vector<Md5Joint> joints;
+	vector<mat4> bind_pose;
+	vector<mat4> inverse_bind_pose;
+};
+
+void compute_vertex_positions(
+	const vector<Md5Joint>& joints,
+	const vector<Md5Weight>& weights,
+	vector<Md5Vertex>& vertices
+) {
+	for (auto& vert : vertices) {
+		for (int i = 0; i < vert.weight_count; i++) {
+			Md5Weight weight = weights[vert.start_weight + i];
+			Md5Joint joint = joints[weight.joint_id];
+
+			vec3 rot_pos = rotate_vec_by_quat(joint.position, joint.orientation);
+			vert.pos += (joint.position + rot_pos) * weight.bias;
+		}
+	}
+}
+
+void compute_normals(
+	const vector<array<int, 3>>& triangles,
+	vector<Md5Vertex>& vertices
+) {
+	for (auto& tri : triangles) {
+		vec3 v0 = vertices[tri[0]].pos;
+		vec3 v1 = vertices[tri[1]].pos;
+		vec3 v2 = vertices[tri[2]].pos;
+
+		vec3 normal = CrossProduct(v2 - v0, v1 - v0);
+		vertices[tri[0]].normal += normal;
+		vertices[tri[1]].normal += normal;
+		vertices[tri[2]].normal += normal;
+	}
+
+	for (auto& vert : vertices) {
+		vert.normal = Normalize(vert.normal);
+	}
+}
+
+void transform_normals_to_joint_local_space(
+	const vector<Md5Joint>& joints,
+	const vector<Md5Weight>& weights,
+	vector<Md5Vertex>& vertices
+) {
+	for (auto& vert : vertices) {
+		vec3 normal = vert.normal;
+		vert.normal = vec3 { 0, 0, 0 };
+
+		for (int i = 0; i < vert.weight_count; i++) {
+			Md5Weight weight = weights[vert.start_weight + i];
+			Md5Joint joint = joints[weight.joint_id];
+			vert.normal += rotate_vec_by_quat(normal, joint.orientation) * weight.bias;
+		}
+	}
+}
+
+Md5Model parse_md5_mesh(const char* filename) {
+	Md5Model model;
+
 	FILE* file = fopen(filename, "r");
 	if (!file) {
 		fprintf(stderr, "parse_md5_mesh: Could not open %s\n", filename);
-		return;
+		return model;
 	}
 
 	// TODO: This function does not check for parse errors
@@ -187,8 +290,7 @@ void parse_md5_mesh(const char* filename) {
 
 	// printf("joints: %d, meshes %d\n", num_joints, num_meshes);
 
-	vector<Md5Joint> joints;
-	joints.reserve(num_joints);
+	model.joints.reserve(num_joints);
 	fscanf(file, "joints { ");
 	for (int i = 0; i < num_joints; i++) {
 		// char joint_name[32]; // This probably risks a buffer overflow
@@ -196,6 +298,7 @@ void parse_md5_mesh(const char* filename) {
 		// vec3 position;
 		// vec3 orientation;
 		Md5Joint joint;
+		vec3 orientation;
 
 		fscanf(
 			file,
@@ -203,10 +306,11 @@ void parse_md5_mesh(const char* filename) {
 			//joint_name,
 			&joint.parent_index,
 			&joint.position.x, &joint.position.y, &joint.position.z,
-			&joint.orientation.x, &joint.orientation.y, &joint.orientation.z
+			&orientation.x, &orientation.y, &orientation.z
 		);
+		joint.orientation = expand_quat(orientation);
 
-		joints.push_back(joint);
+		model.joints.push_back(joint);
 
 		// printf(
 		// 	"parsed %s: %d (%f %f %f) (%f %f %f)\n",
@@ -218,37 +322,29 @@ void parse_md5_mesh(const char* filename) {
 	}
 	fscanf(file, "} ");
 
-	vector<mat4> bind_pose;
-	vector<mat4> inverse_bind_pose;
-	bind_pose.reserve(num_joints);
-	inverse_bind_pose.reserve(num_joints);
-	for (const auto& joint : joints) {
-		vec3 q = joint.orientation;
-		float t = 1.0f - ( q.x * q.x ) - ( q.y * q.y ) - ( q.z * q.z );
-		float w = t < 0 ? 0 : sqrtf(t);
-
+	model.bind_pose.reserve(num_joints);
+	model.inverse_bind_pose.reserve(num_joints);
+	for (const auto& joint : model.joints) {
 		mat4 translation = T(joint.position.x, joint.position.y, joint.position.z);
-
-		mat4 rot {
-			1 - 2*q.y*q.y - 2*q.z*q.z, 2*q.x*q.y - 2*q.z*w,     2*q.x*q.z + 2*q.y*w,
-			2*q.x*q.y + 2*q.z*w,       1 - q.x*q.x - 2*q.z*q.z, 2*q.y*q.z - 2*q.x*w,
-			2*q.x*q.z - 2*q.y*w,       2*q.y*q.z + 2*q.x*w,     1 - 2*q.x*q.x - 2*q.y*q.y
-		};
+		mat4 rot = quat_to_mat4(joint.orientation);
 
 		mat4 bone_matrix = Mult(translation, rot);
-		bind_pose.push_back(bone_matrix);
-		inverse_bind_pose.push_back(InvertMat4(bone_matrix));
+		model.bind_pose.push_back(bone_matrix);
+		model.inverse_bind_pose.push_back(InvertMat4(bone_matrix));
 	}
 
-	for (int i = 0; i < num_meshes; i++) {
+	model.meshes.resize(num_meshes);
+	for (auto& mesh : model.meshes) {
 		fscanf(file, "mesh { ");
+
 		char texture_filename[128];
 		fscanf(file, "shader %s ", texture_filename);
+		mesh.texture_filename = string(texture_filename); // TODO: remove quotes
 
 		int num_verts;
 		fscanf(file, "numverts %d ", &num_verts);
-		vector<Md5Vertex> vertices(num_verts);
-		for (auto& vert : vertices) {
+		mesh.vertices.resize(num_verts);
+		for (auto& vert : mesh.vertices) {
 			fscanf(
 				file,
 				"vert %*d ( %f %f ) %d %d ",
@@ -266,8 +362,8 @@ void parse_md5_mesh(const char* filename) {
 
 		int num_triangles;
 		fscanf(file, "numtris %d ", &num_triangles);
-		vector<int[3]> triangles(num_triangles);
-		for (auto& tri : triangles) {
+		mesh.triangles.resize(num_triangles);
+		for (auto& tri : mesh.triangles) {
 			fscanf(
 				file,
 				"tri %*d %d %d %d ",
@@ -282,8 +378,8 @@ void parse_md5_mesh(const char* filename) {
 
 		int num_weights;
 		fscanf(file, "numweights %d ", &num_weights);
-		vector<Md5Weight> weights(num_weights);
-		for (auto& w : weights) {
+		mesh.weights.resize(num_weights);
+		for (auto& w : mesh.weights) {
 			fscanf(
 				file,
 				"weight %*d %d %f ( %f %f %f ) ",
@@ -300,8 +396,13 @@ void parse_md5_mesh(const char* filename) {
 
 		fscanf(file, "} ");
 	}
-
 	fclose(file);
+
+	for (auto& mesh : model.meshes) {
+		compute_vertex_positions(model.joints, mesh.weights, mesh.vertices);
+	}
+
+	return model;
 }
 
 void parse_md5_anim(const char* filename) {
@@ -325,7 +426,7 @@ void parse_md5_anim(const char* filename) {
 	fscanf(file, "frameRate %d ", &frame_rate);
 	fscanf(file, "numAnimatedCompontents %d ", &num_animated_components);
 
-	fscanf(file, "hierarchy { ");
+	fscanf(file, "hierarchy { "); // TODO: What are flags for?
 	for (int i = 0; i < num_joints; i++) {
 		int parent_index, flags, start_index;
 		fscanf(file, "%*s %d %d %d %*[^\n] ", &parent_index, &flags, &start_index);
