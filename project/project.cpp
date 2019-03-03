@@ -44,6 +44,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <limits>
 using namespace std;
 
 // Ref till shader
@@ -103,6 +104,16 @@ mat4 modelViewMatrix, projectionMatrix;
 
 struct Quaternion {
 	float x, y, z, w;
+
+	Quaternion normalize() {
+		float length = sqrt(x*x + y*y + z*z + w*w);
+		return Quaternion {
+			x / length,
+			y / length,
+			z / length,
+			w / length
+		};
+	}
 };
 
 struct VertexBoneData {
@@ -176,6 +187,59 @@ vec3 rotate_vec_by_quat(vec3 vec, Quaternion quat) {
 		2.0f * w * CrossProduct(q_xyz, vec);
 }
 
+Quaternion operator*(Quaternion q1, Quaternion q2) {
+	Quaternion q3;
+	q3.w = q1.w*q2.w - q1.x*q2.x - q1.y*q2.y - q1.z*q2.z;
+	q3.x = q1.w*q2.x + q1.x*q2.w + q1.y*q2.z - q1.z*q2.y;
+	q3.y = q1.w*q2.y + q1.y*q2.w + q1.z*q2.x - q1.x*q2.z;
+	q3.z = q1.w*q2.z + q1.z*q2.w + q1.x*q2.y - q1.y*q2.x;
+
+	return q3;
+}
+
+Quaternion operator*(float f, Quaternion q) {
+	return Quaternion {
+		q.x*f, q.y*f, q.z*f, q.w*f
+	};
+}
+
+Quaternion operator/(Quaternion q, float f) {
+	return Quaternion {
+		q.x/f, q.y/f, q.z/f, q.w/f
+	};
+}
+
+Quaternion operator+(Quaternion q1, Quaternion q2) {
+	return Quaternion {
+		q1.x + q2.x,
+		q1.y + q2.y,
+		q1.z + q2.z,
+		q1.w + q2.w
+	};
+}
+
+float mix(float x, float y, float factor) {
+	return factor*x + (1.0f - factor)*y;
+}
+
+Quaternion mix(Quaternion q1, Quaternion q2, float factor) {
+	float const cosTheta = q1.x*q2.x + q1.y*q2.y + q1.z*q2.z + q1.w*q2.w;
+
+	if(cosTheta > 1.0f - numeric_limits<float>::epsilon()) {
+		return Quaternion {
+			mix(q1.w, q2.w, factor),
+			mix(q1.x, q2.x, factor),
+			mix(q1.y, q2.y, factor),
+			mix(q1.z, q2.z, factor)
+		};
+	} else {
+		float angle = acos(cosTheta);
+		return (sin((1.0f - factor) * angle) * q1 +
+				sin(factor * angle) * q2) /
+			sin(angle);
+	}
+}
+
 struct Md5Joint {
 	int parent_index;
 	vec3 position;
@@ -205,6 +269,62 @@ struct Md5Mesh {
 	vector<Md5Vertex> vertices;
 	vector<array<int, 3>> triangles;
 	vector<Md5Weight> weights;
+};
+
+struct Md5Animation {
+	struct JointInfo {
+		int parent_id;
+		int flags;
+		int start_index;
+	};
+
+	struct Bound {
+		vec3 min;
+		vec3 max;
+	};
+
+	struct BaseFrame {
+		vec3 pos;
+		Quaternion orientation;
+	};
+
+	struct FrameData {
+		int frame_id;
+		vector<float> frame_data;
+	};
+
+	struct SkeletonJoint {
+		int parent;
+		vec3 pos;
+		Quaternion orient;
+	};
+
+	struct FrameSkeleton {
+		vector<SkeletonJoint> joints;
+	};
+
+	vector<JointInfo> joint_infos;
+	vector<Bound> bounds;
+	vector<BaseFrame> base_frames;
+	vector<FrameData> frames;
+	vector<FrameSkeleton> skeletons;
+	FrameSkeleton animated_skeleton;
+
+	int num_frames;
+	int num_joints;
+	int frame_rate;
+	int num_animated_components;
+
+	float anim_duration;
+	float frame_duration;
+	float anim_time;
+
+	void update(float delta_time);
+	void interpolate_skeletons(
+		const vector<SkeletonJoint>& skeleton0,
+		const vector<SkeletonJoint>& skeleton1,
+		float factor
+	);
 };
 
 struct Md5Model {
@@ -405,11 +525,76 @@ Md5Model parse_md5_mesh(const char* filename) {
 	return model;
 }
 
-void parse_md5_anim(const char* filename) {
+const int POS_X = 1;
+const int POS_Y = 2;
+const int POS_Z = 4;
+const int ORIENT_X = 8;
+const int ORIENT_Y = 16;
+const int ORIENT_Z = 32;
+
+Md5Animation::FrameSkeleton build_frame_skeleton(
+	const vector<Md5Animation::JointInfo>& joint_infos,
+	const vector<Md5Animation::BaseFrame>& base_frames,
+	const Md5Animation::FrameData& frame
+) {
+	Md5Animation::FrameSkeleton skeleton;
+
+	for (uint i = 0; i < joint_infos.size(); i++) {
+		unsigned int j = 0;
+ 
+        const Md5Animation::JointInfo& joint_info = joint_infos[i];
+        // Start with the base frame position and orientation.
+		Md5Animation::SkeletonJoint animated_joint;
+		animated_joint.parent = joint_info.parent_id;
+		animated_joint.pos = base_frames[i].pos;
+		animated_joint.orient = base_frames[i].orientation;
+        animated_joint.parent = joint_info.parent_id;
+ 
+        if (joint_info.flags & POS_X) {
+            animated_joint.pos.x = frame.frame_data[ joint_info.start_index + j++ ];
+        }
+        if (joint_info.flags & POS_Y) {
+            animated_joint.pos.y = frame.frame_data[ joint_info.start_index + j++ ];
+        }
+        if (joint_info.flags & POS_Z) {
+            animated_joint.pos.z  = frame.frame_data[ joint_info.start_index + j++ ];
+        }
+        if (joint_info.flags & ORIENT_X) {
+            animated_joint.orient.x = frame.frame_data[ joint_info.start_index + j++ ];
+        }
+        if (joint_info.flags & ORIENT_Y) {
+            animated_joint.orient.y = frame.frame_data[ joint_info.start_index + j++ ];
+        }
+        if (joint_info.flags & ORIENT_Z) {
+            animated_joint.orient.z = frame.frame_data[ joint_info.start_index + j++ ];
+        }
+
+		animated_joint.orient = expand_quat(
+			vec3 {
+				animated_joint.orient.x, animated_joint.orient.y, animated_joint.orient.z
+			}
+		);
+
+		if (animated_joint.parent >= 0) {
+			Md5Animation::SkeletonJoint parent_joint = skeleton.joints[animated_joint.parent];
+			vec3 rot_pos = rotate_vec_by_quat(animated_joint.pos, parent_joint.orient);
+
+			animated_joint.pos = parent_joint.pos + rot_pos;
+			animated_joint.orient = (parent_joint.orient * animated_joint.orient).normalize();
+		}
+
+		skeleton.joints.push_back(animated_joint);
+	}
+
+	return skeleton;
+}
+
+Md5Animation parse_md5_anim(const char* filename) {
+	Md5Animation animation;
 	FILE* file = fopen(filename, "r");
 	if (!file) {
 		fprintf(stderr, "parse_md5_mesh: Could not open %s\n", filename);
-		return;
+		return animation;
 	}
 
 	// TODO: This function does not check for parse errors
@@ -420,50 +605,101 @@ void parse_md5_anim(const char* filename) {
 
 	fscanf(file, "commandline %*s ");
 
-	int num_frames, num_joints, frame_rate, num_animated_components;
-	fscanf(file, "numFrames %d ", &num_frames);
-	fscanf(file, "numJoints %d ", &num_joints);
-	fscanf(file, "frameRate %d ", &frame_rate);
-	fscanf(file, "numAnimatedCompontents %d ", &num_animated_components);
+	fscanf(file, "numFrames %d ", &animation.num_frames);
+	fscanf(file, "numJoints %d ", &animation.num_joints);
+	fscanf(file, "frameRate %d ", &animation.frame_rate);
+	fscanf(file, "numAnimatedCompontents %d ", &animation.num_animated_components);
 
-	fscanf(file, "hierarchy { "); // TODO: What are flags for?
-	for (int i = 0; i < num_joints; i++) {
-		int parent_index, flags, start_index;
-		fscanf(file, "%*s %d %d %d %*[^\n] ", &parent_index, &flags, &start_index);
-	}
-	fscanf(file, "} ");
+	animation.frame_duration = 1.0f / (float)animation.frame_rate;
+	animation.anim_duration = animation.frame_duration * (float)animation.num_frames;
+	animation.anim_time = 0.0f;
 
-	fscanf(file, "bounds { ");
-	for (int i = 0; i < num_frames; i++) {
-		vec3 bound_min, bound_max;
+	animation.joint_infos.resize(animation.num_joints);
+	fscanf(file, "hierarchy { ");
+	for (auto& joint_info : animation.joint_infos) {
 		fscanf(
 			file,
-			"( %f %f %f ) ( %f %f %f ) ",
-			&bound_min.x, &bound_min.y, &bound_min.z,
-			&bound_max.x, &bound_max.y, &bound_max.z
+			"%*s %d %d %d %*[^\n] ",
+			&joint_info.parent_id,
+			&joint_info.flags,
+			&joint_info.start_index
 		);
 	}
 	fscanf(file, "} ");
 
-	fscanf(file, "baseframe { ");
-	for (int i = 0; i < num_joints; i++) {
-		vec3 position, orientation;
+	animation.bounds.resize(animation.num_frames);
+	fscanf(file, "bounds { ");
+	for (auto& bound : animation.bounds) {
 		fscanf(
 			file,
 			"( %f %f %f ) ( %f %f %f ) ",
-			&position.x, &position.y, &position.z,
+			&bound.min.x, &bound.min.y, &bound.min.z,
+			&bound.max.x, &bound.max.y, &bound.max.z
+		);
+	}
+	fscanf(file, "} ");
+
+	animation.base_frames.resize(animation.num_joints);
+	fscanf(file, "baseframe { ");
+	for (auto& base_frame : animation.base_frames) {
+		vec3 orientation;
+		fscanf(
+			file,
+			"( %f %f %f ) ( %f %f %f ) ",
+			&base_frame.pos.x, &base_frame.pos.y, &base_frame.pos.z,
 			&orientation.x, &orientation.y, &orientation.z
 		);
+		base_frame.orientation = expand_quat(orientation);
 	}
 	fscanf(file, "} ");
 
-	for (int i = 0; i < num_frames; i++) {
+	animation.frames.resize(animation.num_frames);
+	for (auto& frame : animation.frames) {
 		fscanf(file, "frame { ");
-		for (int j = 0; j < num_animated_components; j++) {
-			float data;
+
+		frame.frame_data.resize(animation.num_animated_components);
+		for (auto& data : frame.frame_data) {
 			fscanf(file, "%f ", &data);
 		}
 		fscanf(file, "} ");
+
+		animation.skeletons.push_back(
+			build_frame_skeleton(
+				animation.joint_infos,
+				animation.base_frames,
+				frame
+			)
+		);
+	}
+
+	return animation;
+}
+
+void Md5Animation::update(float delta_time) {
+	if (num_frames < 1) {
+		return;
+	}
+
+	anim_time += delta_time;
+
+	while (anim_time > anim_duration) {
+		anim_time -= anim_duration;
+	}
+	while (anim_time < 0.0f) {
+		anim_time += anim_duration;
+	}
+}
+
+void Md5Animation::interpolate_skeletons(
+	const vector<SkeletonJoint> &skeleton0,
+	const vector<SkeletonJoint> &skeleton1,
+	float factor
+) {
+	for (int i = 0; i < num_joints; i++) {
+		SkeletonJoint& joint = animated_skeleton.joints[i];
+		joint.parent = skeleton0[i].parent;
+		joint.pos = skeleton0[i].pos*factor + skeleton1[i].pos*(1 - factor);
+		joint.orient = mix(skeleton0[i].orient, skeleton1[2].orient, factor);
 	}
 }
 
