@@ -608,7 +608,7 @@ Md5Animation parse_md5_anim(const char* filename) {
 	fscanf(file, "numFrames %d ", &animation.num_frames);
 	fscanf(file, "numJoints %d ", &animation.num_joints);
 	fscanf(file, "frameRate %d ", &animation.frame_rate);
-	fscanf(file, "numAnimatedCompontents %d ", &animation.num_animated_components);
+	fscanf(file, "numAnimatedComponents %d ", &animation.num_animated_components);
 
 	animation.frame_duration = 1.0f / (float)animation.frame_rate;
 	animation.anim_duration = animation.frame_duration * (float)animation.num_frames;
@@ -1339,6 +1339,7 @@ int main(int argc, char **argv)
 #endif
 
 	parse_md5_mesh("boblampclean.md5mesh");
+	parse_md5_anim("boblampclean.md5anim");
 
 	Assimp::Importer importer;
 	const aiScene* scene = importer.ReadFile(
